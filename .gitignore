@@ -1,0 +1,98 @@
+# ==== Python ====
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ==== 대용량 데이터/학습 자산 ====
+dataset/
+dist_dosa/dataset/
+models/
+dist_dosa/models/
+*.pt
+*.onnx
+*.engine
+*.weights
+
+# ==== 로그/리포트/스냅샷 ====
+logs/
+dist_dosa/logs/
+hunt_reports/
+dist_dosa/hunt_reports/
+debug/
+frames/
+raw_frames/
+*.jsonl
+*.log
+
+# ==== 캡처/이미지/영상 ====
+*.mp4
+*.avi
+*.mkv
+*.mov
+debug_map.png
+debug_frame.png
+atk_frame.png
+*.png
+*.jpg
+*.jpeg
+# (단, 문서에 첨부된 작은 이미지가 필요해지면 화이트리스트 추가)
+
+# ==== 게임/세션 로그 폴더 ====
+격수로그/
+도사로그/
+힐러/
+seq_rclick_dump/
+coordnum/
+
+# ==== 데이터셋(coco 폴더) ====
+oldbaram-redbox.coco/
+redbox_manual.coco/
+white-box.coco/
+white-box.coco v2/
+white-box.coco*/
+
+# ==== POC/폐기 모듈 ====
+poc/
+memory_reader/
+templates/
+_src_v2_legacy_*/
+
+# ==== 스모크/임시 스크립트 ====
+_smoke_*.py
+_sync_p2p3.py
+__memkw_tmp.txt
+freeze.txt
+cline_audit.md
+
+# ==== 개인 메모/반성문/로그성 텍스트 ====
+반성문*.md
+격수.txt
+힐러*.txt
+dist_dosa/격수로그.txt
+dist_dosa/힐러1.txt
+dist_dosa/힐러2.txt
+
+# ==== 로컬 도구 상태 ====
+.bkit/
+.claude/
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ==== 백업 파일 ====
+*.bak
+*.bak.*
+*.pre*.bak
+*.pre*
+
+# ==== OS/빌드 산출물 ====
+build/
+dist/
+*.spec

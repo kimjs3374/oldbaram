@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>oldbaram 스킬 발동 체인</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+  background: #1b1d22; color: #e6e6e6;
+  padding: 24px; line-height: 1.5;
+}
+h1 { font-size: 22px; margin-bottom: 4px; color: #4a90ff; }
+h2 { font-size: 16px; margin: 24px 0 12px; color: #f4a84a; border-bottom: 1px solid #3a4150; padding-bottom: 6px; }
+.sub { color: #888; font-size: 13px; margin-bottom: 20px; }
+
+/* 전체 플로우 */
+.flow {
+  background: #23262d; border: 1px solid #3a4150; border-radius: 8px;
+  padding: 16px; margin-bottom: 24px;
+}
+.flow-step {
+  display: inline-block; background: #2d323b; border-radius: 6px;
+  padding: 10px 14px; margin: 4px; font-size: 13px;
+}
+.flow-arrow { color: #4a90ff; margin: 0 6px; font-weight: bold; }
+
+/* 스킬 카드 그리드 */
+.grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 16px;
+}
+.card {
+  background: #23262d; border: 1px solid #3a4150; border-radius: 8px;
+  overflow: hidden;
+}
+.card-head {
+  padding: 12px 16px; font-weight: bold; font-size: 15px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.card-body { padding: 12px 16px; font-size: 13px; }
+
+/* 긴급도별 색상 */
+.urgent .card-head { background: #8b2c2c; color: white; }    /* 빨강: 생명 */
+.important .card-head { background: #a06b1e; color: white; } /* 주황: 중요 */
+.normal .card-head { background: #2b5d8a; color: white; }    /* 파랑: 일반 */
+.timer .card-head { background: #3d6b3d; color: white; }     /* 녹색: 타이머 */
+.off .card-head { background: #4a4a4a; color: #aaa; }        /* 회색: 비활성 */
+
+.vk { background: rgba(255,255,255,0.15); padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+
+/* 체인 단계 */
+.chain { display: flex; flex-direction: column; gap: 8px; }
+.step {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 8px 10px; background: #1b1d22; border-radius: 5px;
+  border-left: 3px solid #4a90ff;
+}
+.step-num {
+  background: #4a90ff; color: white; width: 22px; height: 22px;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: bold; flex-shrink: 0;
+}
+.step-body { flex: 1; }
+.step-title { font-weight: bold; color: #e6e6e6; margin-bottom: 2px; }
+.step-desc { color: #b8b8b8; font-size: 12px; }
+
+.retry {
+  margin-top: 8px; padding: 8px 10px;
+  background: #2a1f1f; border-left: 3px solid #d46a6a;
+  border-radius: 5px; font-size: 12px;
+}
+.retry b { color: #f4a84a; }
+
+/* 공통 구조 */
+.common {
+  background: #23262d; border: 1px solid #3a4150; border-radius: 8px;
+  padding: 16px; margin-top: 24px;
+}
+.common ul { list-style: none; padding: 0; }
+.common li {
+  padding: 8px 0; border-bottom: 1px dashed #3a4150;
+  font-size: 13px;
+}
+.common li:last-child { border: none; }
+.common b { color: #4a90ff; }
+
+.warn {
+  background: #2a1f1f; border: 1px solid #d46a6a; border-radius: 8px;
+  padding: 14px 18px; margin-top: 20px; font-size: 13px;
+}
+.warn h3 { color: #f4a84a; margin-bottom: 6px; }
+
+table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #3a4150; font-size: 12px; }
+th { color: #4a90ff; }
+</style>
+</head>
+<body>
+
+<h1>oldbaram 스킬 발동 체인 (v6-edge)</h1>
+<p class="sub">게이머 관점 설명 · 조건 충족 순간 → 스킬 큐 등록 → 스케줄러가 1회 시전 → 상태 유지 중엔 반복 안 함</p>
+
+<!-- 전체 플로우 -->
+<h2>전체 흐름</h2>
+<div class="flow">
+  <span class="flow-step">① 내 HP/MP OCR 읽음 (0.5초마다)</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">② 값이 조건 만족하는 순간 감지</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">③ 스케줄러에 스킬 이름 등록</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">④ 순서대로 1회 시전</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">⑤ 조건 풀렸다가 다시 만족하면 또 발동</span>
+</div>
+
+<h2>스킬 9종 발동 체인</h2>
+<div class="grid">
+
+<!-- 자가부활 -->
+<div class="card urgent">
+  <div class="card-head">
+    <span>💀 자가부활</span>
+    <span class="vk">NumPad 6</span>
+  </div>
+  <div class="card-body">
+    <div class="chain">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">언제 발동?</div>
+          <div class="step-desc">내가 죽었을 때 (HP = 0)</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">어떻게 감지?</div>
+          <div class="step-desc">HP OCR 결과가 <b>0 으로 딱 바뀌는 순간</b></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">시전 동작</div>
+          <div class="step-desc">
+            TAB → HOME → TAB (나한테 타겟)<br>
+            → 메인힐 토글 OFF<br>
+            → 부활 버튼 0.5초 연타<br>
+            → 자힐 1초 연타<br>
+            → ESC → TAB → TAB (격수 복귀)<br>
+            → 메인힐 토글 ON
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="retry"><b>재발동</b>: HP 가 0 초과로 복구된 뒤 또 0 되면 다시 발동</div>
+  </div>
+</div>
+
+<!-- 자힐 -->
+<div class="card urgent">
+  <div class="card-head">
+    <span>❤️ 자힐</span>
+    <span class="vk">NumPad 1 (메인힐 재사용)</span>
+  </div>
+  <div class="card-body">
+    <div class="chain">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">언제 발동?</div>
+          <div class="step-desc">내 HP % 가 설정 임계치 미만일 때 (예: 50% 아래)</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">어떻게 감지?</div>
+          <div class="step-desc">HP OCR 결과가 임계치 위 → 아래로 <b>딱 내려가는 순간</b></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">시전 동작</div>
+          <div class="step-desc">
+            자가부활과 <b>동일한 블록 A+B 시퀀스</b><br>
+            (부활 연타 + 자힐 연타 한 세트)
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="retry"><b>재발동</b>: HP 가 임계치 이상으로 회복된 뒤 또 밑으로 내려가면 다시 발동</div>
+  </div>
+</div>
+
+<!-- 공력증강 -->
+<div class="card important">
+  <div class="card-head">
+    <span>💙 공력증강</span>
+    <span class="vk">NumPad 3</span>
+  </div>
+  <div class="card-body">
+    <div class="chain">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">언제 발동?</div>
+          <div class="step-desc">내 MP % 가 설정 임계치 미만일 때 (예: 30% 아래)</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">어떻게 감지?</div>
+          <div class="step-desc">MP OCR 결과가 임계치 위 → 아래로 <b>딱 내려가는 순간</b></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">시전 동작</div>
+          <div class="step-desc">
+            NumPad3 을 1초 동안 0.1초 간격으로 연타<br>
+            (격수 타겟 유지 · 블록 시퀀스 없음)
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="retry"><b>재발동</b>: MP 가 임계치 이상으로 회복된 뒤 또 밑으로 내려가면 다시 발동</div>
+  </div>
+</div>
+
+<!-- 격수부활 -->
+<div class="card urgent">
+  <div class="card-head">
+    <span>🆘 격수부활</span>
+    <span class="vk">NumPad 6</span>
+  </div>
+  <div class="card-body">
+    <div class="chain">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">언제 발동?</div>
+          <div class="step-desc">격수가 죽었고 (HP=0) + 내가 살아있을 때</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">어떻게 감지?</div>
+          <div class="step-desc">격수 PC 가 UDP 로 보내주는 HP 가 <b>0 으로 딱 바뀌는 순간</b></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">시전 동작</div>
+          <div class="step-desc">
+            NumPad6 을 1.5초 동안 0.15초 간격으로 연타<br>
+            (격수에 이미 빨탭 걸린 상태 가정)
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="retry"><b>재발동</b>: 격수 부활 후 또 죽으면 다시 발동</div>
+  </div>
+</div>
+
+<!-- 파혼술 -->
+<div class="card important">
+  <div class="card-head">
+    <span>🔮 파혼술</span>
+    <span class="vk">NumPad 7</span>
+  </div>
+  <div class="card-body">
+    <div class="chain">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">언제 발동?</div>
+          <div class="step-desc">격수한테 "혼마술" 디버프가 걸렸을 때</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">어떻게 감지?</div>
+          <div class="step-desc">
+            격수 PC 의 버프 OCR → UDP 로 전송 →<br>
+            힐러가 <b>혼마술 남은시간 > 0 으로 딱 바뀌는 순간</b> 감지
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">시전 동작</div>
+          <div class="step-desc">NumPad7 을 0.5초 동안 0.1초 간격으로 연타</div>
+        </div>
+      </div>
+    </div>
+    <div class="retry"><b>재발동</b>: 혼마술 풀린 뒤 또 걸리면 다시 발동</div>
+  </div>
+</div>
+
+<!-- 파력무참 -->
+<div class="card timer">
+  <div class="card-head">
+    <span>⏱️ 파력무참</span>
+    <span class="vk">NumPad 8</span>
+  </div>
+  <div class="card-body">
+    <div class="chain">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">언제 발동?</div>
+          <div class="step-desc">게임 내장 쿨타임 <b>180초</b>마다 (무조건)</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">어떻게 감지?</div>
+          <div class="step-desc">내부 타이머가 마지막 시전 후 180초 경과했는지 계속 체크</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">시전 동작</div>
+          <div class="step-desc">
+            NumPad8 을 2초 동안 연타 →<br>
+            버프 OCR 에서 "파력무참" 글자 떴는지 확인 →<br>
+            실패하면 최대 3번 재시도
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="retry"><b>재발동</b>: 다시 180초 경과 후 자동</div>
+  </div>
+</div>
+
+<!-- 백호의희원 -->
+<div class="card timer">
+  <div class="card-head">
+    <span>🐯 백호의희원</span>
+    <span class="vk">NumPad 4</span>
+  </div>
+  <div class="card-body">
+    <div class="chain">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">언제 발동?</div>
+          <div class="step-desc">쿨 OCR 에서 "백호의희원" 쿨 표시가 <b>안 보일 때</b> (쿨 끝났다는 뜻)</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">어떻게 감지?</div>
+          <div class="step-desc">쿨 영역 OCR 이 해당 스킬 쿨 숫자 못 찾으면 "준비됨"으로 판단</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">시전 동작</div>
+          <div class="step-desc">
+            NumPad4 을 2초 연타 →<br>
+            쿨 OCR 다시 확인 → 쿨 숫자 나올 때까지 <b>무한 반복</b><br>
+            (시전 성공 확인되면 중단)
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="retry"><b>재발동</b>: 쿨 OCR 값이 다시 0 이 되면 (게임 쿨 만료)</div>
+  </div>
+</div>
+
+<!-- 백호의희원첨 -->
+<div class="card timer">
+  <div class="card-head">
+    <span>🐯 백호의희원첨</span>
+    <span class="vk">NumPad 5</span>
+  </div>
+  <div class="card-body">
+    <div class="chain">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">언제 발동?</div>
+          <div class="step-desc">백호의희원과 동일 (쿨 OCR 에 "백호의희원첨" 쿨 미관측)</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">어떻게 감지?</div>
+          <div class="step-desc">백호의희원과 동일</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">시전 동작</div>
+          <div class="step-desc">NumPad5 연타. 쿨 관측까지 무한 반복</div>
+        </div>
+      </div>
+    </div>
+    <div class="retry"><b>재발동</b>: 쿨 OCR 값 0 이 되면</div>
+  </div>
+</div>
+
+<!-- 금강불체 -->
+<div class="card off">
+  <div class="card-head">
+    <span>🛡️ 금강불체</span>
+    <span class="vk">NumPad 0</span>
+  </div>
+  <div class="card-body">
+    <div class="chain">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">언제 발동?</div>
+          <div class="step-desc"><b>현재 조건 없음. 기본 비활성화 (OFF)</b></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">어떻게 감지?</div>
+          <div class="step-desc">자동 감지 경로 없음. 향후 조건 정의 필요</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">시전 동작</div>
+          <div class="step-desc">외부에서 직접 "금강불체" 요청 있을 때만 NumPad0 연타</div>
+        </div>
+      </div>
+    </div>
+    <div class="retry"><b>재발동</b>: 발동 조건이 코드에 아직 없음 — 원하는 조건 알려주면 추가</div>
+  </div>
+</div>
+
+</div><!-- /grid -->
+
+<!-- 공통 구조 -->
+<h2>공통 구조</h2>
+<div class="common">
+  <ul>
+    <li><b>검사 주기</b>: HP/MP OCR 은 0.5초마다 값 갱신. 값이 바뀌는 순간 스케줄러 즉시 깨움 (추가 대기 없음)</li>
+    <li><b>시전 순서</b>: 여러 조건이 동시에 만족해도 스케줄러 큐에 들어간 <b>순서대로</b> 한 번에 하나씩 시전 (자힐 끝나야 공증 시작)</li>
+    <li><b>자힐·자가부활 중 이동</b>: 블록 A+B 시퀀스 진행 중에는 방향키 차단 (TAB/HOME 과 섞이면 꼬임). 끝나면 바로 해제</li>
+    <li><b>중복 방지</b>: 같은 스킬이 큐에 이미 있으면 무시. 조건 유지되는 동안 한 번만</li>
+    <li><b>발동 정지 조건</b>: armed OFF / 죽음 상태 / UDP 끊김 / 맵 불일치 / 따라가기 전용 모드면 전체 중단</li>
+    <li><b>UI 임계치 즉시 반영</b>: 스피너 값 변경하면 다음 감지 때 바로 적용 (재시작 불필요)</li>
+  </ul>
+</div>
+
+<!-- 긴급도 설명 -->
+<h2>색 구분</h2>
+<table>
+<tr><th>색</th><th>의미</th><th>스킬</th></tr>
+<tr><td style="color:#d46a6a;">■ 빨강</td><td>생명 직결</td><td>자가부활 / 자힐 / 격수부활</td></tr>
+<tr><td style="color:#f4a84a;">■ 주황</td><td>중요 조건부</td><td>공력증강 / 파혼술</td></tr>
+<tr><td style="color:#5ba35b;">■ 녹색</td><td>타이머 기반</td><td>파력무참 / 백호의희원 / 백호의희원첨</td></tr>
+<tr><td style="color:#888;">■ 회색</td><td>비활성/옵션</td><td>금강불체</td></tr>
+</table>
+
+<div class="warn">
+  <h3>⚠ 주의 (v6-edge 이전과 차이점)</h3>
+  <p>
+    예전: 조건 만족하면 <b>계속</b> 시전 (무한 루프 → 자힐만 돌고 공증 차례 안 옴)<br>
+    지금: 조건 <b>딱 바뀌는 순간</b> 1회 시전 → 상태 유지 중엔 가만히 있음 → 풀렸다 다시 걸리면 또 발동
+  </p>
+</div>
+
+</body>
+</html>
