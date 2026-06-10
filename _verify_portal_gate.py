@@ -29,10 +29,14 @@ def new_w(red, white, follow_only=False):
     w = HealerWorker.__new__(HealerWorker)
     w.coord_tol = 1
     w.healer_coord = (10, 9)
+    w.healer_map = "선비족3-3(1)"
+    w._cur_red_cx = 1200.0
+    w._cur_red_cy = 600.0
     w.follow_only = follow_only
     w._cur_red_raw = red
     w._cur_white_raw = white
     w._portal_enter_logged = False
+    w._portal_wait_log_ts = 0.0
     w.log = logging.getLogger("t")
     return w
 
