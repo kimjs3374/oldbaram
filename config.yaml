@@ -7,10 +7,10 @@ vision:
   # 기본값은 ROOT/dataset/runs/full_v3/weights/best.pt (nc=2 yolov8s red_tab/white_tab)
   # 특정 PC에서 다른 가중치 쓰려면 아래처럼 지정:
   #   weights: C:\oldbaram\dataset\runs\full_v3\weights\best.pt
-  imgsz: 640
+  imgsz: 416
   conf: 0.25
   half: true
-  device: 0
+  device: -1   # ONNX CPU 강제 (GPU 경합 spike 회피)
 
 ocr:
   # 격수 PC 캡처 1333x720 기준으로 실측 보정.
