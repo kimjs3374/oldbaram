@@ -23,7 +23,8 @@ class FakeFol:
     def exit_dir(self): return "R"
     def force_exit_remaining(self): return 5.0
     def direction(self): return "-"
-    def next_waypoint(self, *a, **k): return None  # trail 끝 → exit_dir
+    def next_waypoint(self, *a, **k):
+        return ((10, 5), "R")  # ((wx,wy),dir) — FORCE-EXIT-TRAIL 경로 실행
 
 
 def new_w(red, white, follow_only=False):
