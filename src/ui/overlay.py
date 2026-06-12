@@ -411,10 +411,10 @@ class _ScaledOverlay(QtWidgets.QWidget):
                  (1, 0), (-1, 1), (0, 1), (1, 1))
 
     def _text(self, qp: QtGui.QPainter, x: int, y: int, s: str,
-              color, halo: bool = True, halo_alpha: int = 240,
-              shadow: bool = True, outline: int = 1) -> None:
-        """입체 HUD 텍스트: 드롭섀도(깊이) + 검은 외곽선(가독) + 본문.
-        투명도와 무관하게 어떤 배경에도 또렷. outline=링 두께(px단위 반복)."""
+              color, halo: bool = True, halo_alpha: int = 235,
+              shadow: bool = False, outline: int = 1) -> None:
+        """halo(검은 외곽선) 텍스트 — flat. 투명도와 무관하게 또렷.
+        shadow=True 면 드롭섀도(입체) 추가. outline=링 두께(px 반복)."""
         if shadow:
             sh = max(1, self._px(2))
             qp.setPen(QtGui.QColor(0, 0, 0, 150))
@@ -429,9 +429,9 @@ class _ScaledOverlay(QtWidgets.QWidget):
         qp.drawText(int(x), int(y), s)
 
     def _text_rect(self, qp: QtGui.QPainter, rect, flags, s: str,
-                   color, halo: bool = True, halo_alpha: int = 240,
-                   shadow: bool = True, outline: int = 1) -> None:
-        """입체 HUD 텍스트 (정렬 rect 버전)."""
+                   color, halo: bool = True, halo_alpha: int = 235,
+                   shadow: bool = False, outline: int = 1) -> None:
+        """halo 텍스트 (정렬 rect 버전) — flat 기본."""
         if shadow:
             sh = max(1, self._px(2))
             qp.setPen(QtGui.QColor(0, 0, 0, 150))
@@ -845,12 +845,12 @@ class HuntOverlay(_ScaledOverlay):
                            QtGui.QColor(150, 200, 170))
                 qp.setFont(self._font(17))
                 self._text(qp, left, num_y, _fmt_xp(stats["gain"]),
-                           QtGui.QColor(120, 245, 160), outline=2)
+                           QtGui.QColor(120, 245, 160))
                 xph = stats["xph"]
                 qp.setFont(self._font(15))
                 self._text(qp, col2, num_y,
                            (_fmt_xph(xph) if xph > 0 else "—"),
-                           QtGui.QColor(240, 246, 254), outline=2)
+                           QtGui.QColor(240, 246, 254))
             y = num_y + self._px(12)
             for s in sec:
                 if qp is not None:

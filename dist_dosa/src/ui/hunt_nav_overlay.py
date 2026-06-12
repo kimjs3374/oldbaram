@@ -103,12 +103,15 @@ class HuntNavOverlay(_ScaledOverlay):
         x0 = self.width() - cw - self._px(7)
         y0 = self._px(1)
         rect = QtCore.QRectF(x0, y0, cw, ch)
-        border = QtGui.QPen(QtGui.QColor(ar, ag, ab, 225), self._px(1))
-        self._chip(qp, rect, QtGui.QColor(36, 31, 17),
-                   radius=ch / 2, border=border)
+        qp.setPen(QtCore.Qt.NoPen)
+        qp.setBrush(QtGui.QColor(ar, ag, ab, 42))
+        qp.drawRoundedRect(rect, ch / 2, ch / 2)
+        qp.setPen(QtGui.QPen(QtGui.QColor(ar, ag, ab, 175), self._px(1)))
+        qp.setBrush(QtCore.Qt.NoBrush)
+        qp.drawRoundedRect(rect, ch / 2, ch / 2)
         self._text_rect(qp, QtCore.QRect(int(x0), int(y0), int(cw), int(ch)),
                         int(QtCore.Qt.AlignCenter), label,
-                        QtGui.QColor(255, 222, 140), shadow=False)
+                        QtGui.QColor(255, 216, 132))
 
     def paintEvent(self, _ev):
         qp = QtGui.QPainter(self)
@@ -141,21 +144,12 @@ class HuntNavOverlay(_ScaledOverlay):
                 self._slot_center("RM")[0] - lm[0],
                 self._slot_center("BL")[1] - tl[1],
             )
-            # 링 그림자 + 본선 (또렷한 통로).
+            # 링(통로) — 깔끔한 단선 (flat).
             qp.setBrush(QtCore.Qt.NoBrush)
-            qp.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 110), self._px(4)))
-            qp.drawRoundedRect(ring.translated(0, self._px(1)),
-                               self._px(15), self._px(15))
-            qp.setPen(QtGui.QPen(QtGui.QColor(126, 146, 184), self._px(2)))
-            qp.drawRoundedRect(ring, self._px(15), self._px(15))
+            qp.setPen(QtGui.QPen(QtGui.QColor(96, 112, 146, 210), self._px(2)))
+            qp.drawRoundedRect(ring, self._px(13), self._px(13))
 
-            def _grad(c0, c1, rect):
-                gg = QtGui.QLinearGradient(rect.topLeft(), rect.bottomLeft())
-                gg.setColorAt(0.0, QtGui.QColor(*c0))
-                gg.setColorAt(1.0, QtGui.QColor(*c1))
-                return QtGui.QBrush(gg)
-
-            # 노드 칩 (불투명 입체 — 드롭섀도+글로스, 투명도 비의존).
+            # 노드 박스 (flat — 채움+테두리, 투명도 비의존).
             bw, bh = self._px(38), self._px(21)
             for slot, label in layout.items():
                 cx, cy = self._slot_center(slot)
@@ -167,43 +161,45 @@ class HuntNavOverlay(_ScaledOverlay):
                 nr = self._px(6)
                 halo = True
                 if is_next and hub_alert:
-                    fill = _grad((255, 224, 116), (245, 168, 24), rect)
-                    border = QtGui.QPen(QtGui.QColor(255, 255, 255), self._px(2))
-                    txt_c = QtGui.QColor(48, 32, 4)
+                    fill = QtGui.QColor(250, 196, 56)
+                    pen = QtGui.QPen(QtGui.QColor(255, 255, 255), self._px(2))
+                    txt_c = QtGui.QColor(44, 30, 6)
                     halo = False
                 elif is_next:
-                    fill = _grad((60, 64, 78), (40, 43, 54), rect)
-                    border = QtGui.QPen(QtGui.QColor(255, 204, 66), self._px(2))
-                    txt_c = QtGui.QColor(255, 218, 116)
+                    fill = QtGui.QColor(46, 50, 62, 228)
+                    pen = QtGui.QPen(QtGui.QColor(255, 200, 60), self._px(2))
+                    txt_c = QtGui.QColor(255, 214, 110)
                 elif is_entry:
-                    fill = _grad((42, 54, 74), (28, 38, 54), rect)
-                    border = QtGui.QPen(QtGui.QColor(108, 132, 172), self._px(1))
-                    txt_c = QtGui.QColor(176, 200, 230)
+                    fill = QtGui.QColor(34, 44, 60, 228)
+                    pen = QtGui.QPen(QtGui.QColor(96, 120, 160), self._px(1))
+                    txt_c = QtGui.QColor(160, 186, 216)
                 elif in_order:
-                    fill = _grad((54, 58, 72), (36, 40, 51), rect)
-                    border = QtGui.QPen(QtGui.QColor(112, 124, 150), self._px(1))
-                    txt_c = QtGui.QColor(234, 236, 246)
+                    fill = QtGui.QColor(44, 48, 60, 228)
+                    pen = QtGui.QPen(QtGui.QColor(104, 116, 142), self._px(1))
+                    txt_c = QtGui.QColor(226, 228, 238)
                 else:
-                    fill = _grad((46, 50, 61), (30, 33, 42), rect)
-                    border = QtGui.QPen(QtGui.QColor(88, 96, 116), self._px(1))
-                    txt_c = QtGui.QColor(154, 158, 170)
+                    fill = QtGui.QColor(40, 44, 55, 228)
+                    pen = QtGui.QPen(QtGui.QColor(88, 96, 116), self._px(1))
+                    txt_c = QtGui.QColor(140, 144, 156)
                 if is_cur:
-                    border = QtGui.QPen(QtGui.QColor(120, 244, 146), self._px(2))
-                # 다음 굴(허브 강조) 외곽 글로우.
+                    pen = QtGui.QPen(QtGui.QColor(118, 240, 142), self._px(2))
+                # 다음 굴(허브 강조) 옅은 글로우.
                 if is_next and hub_alert:
                     qp.setPen(QtCore.Qt.NoPen)
-                    qp.setBrush(QtGui.QColor(255, 210, 80, 80))
+                    qp.setBrush(QtGui.QColor(255, 210, 80, 55))
                     qp.drawRoundedRect(
-                        rect.adjusted(-self._px(4), -self._px(4),
-                                      self._px(4), self._px(4)),
-                        nr + self._px(4), nr + self._px(4))
-                self._chip(qp, rect, fill, radius=nr, border=border)
+                        rect.adjusted(-self._px(3), -self._px(3),
+                                      self._px(3), self._px(3)),
+                        nr + self._px(3), nr + self._px(3))
+                qp.setBrush(fill)
+                qp.setPen(pen)
+                qp.drawRoundedRect(rect, nr, nr)
                 text = "입구" if is_entry else (
                     f"▶{label}" if (is_next and hub_alert) else str(label))
                 qp.setFont(self._font(9))
                 self._text_rect(qp, rect.toRect(),
                                 int(QtCore.Qt.AlignCenter), text, txt_c,
-                                halo=halo, shadow=False)
+                                halo=halo)
         else:
             qp.setFont(self._font(9, bold=False))
             self._text(qp, left_pad, top + row_h,
