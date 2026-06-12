@@ -503,8 +503,9 @@ class HunterHelperOverlay(_ScaledOverlay):
         row_h = self._px(20)
         self._draw_title(
             qp,
-            f"사냥 도우미 — {subclass_label(self._subclass)} {rank_label(self._rank)}",
+            f"사냥 도우미 · {subclass_label(self._subclass)} {rank_label(self._rank)}",
             baseline_y=self._px(19),
+            accent=ACCENT_HELPER,
         )
 
         y = self._px(19) + self._px(11)
@@ -515,25 +516,23 @@ class HunterHelperOverlay(_ScaledOverlay):
         val_col = self._px(140)
         if not skills:
             qp.setFont(self._font(9, bold=False))
-            qp.setPen(QtGui.QColor(140, 140, 150))
-            qp.drawText(name_col, y, "스킬 데이터 없음")
+            self._text(qp, name_col, y, "스킬 데이터 없음",
+                       QtGui.QColor(150, 156, 168))
             y += row_h
         else:
             qp.setFont(self._font(11))
             for nm, _cd_max in skills:
                 cd_v = self._eff_own_cd(nm)
-                qp.setPen(QtGui.QColor(210, 220, 235))
-                qp.drawText(name_col, y, nm)
-                qp.setPen(_cd_color(cd_v))
-                qp.drawText(val_col, y, _fmt_cd_readable(cd_v))
+                self._text(qp, name_col, y, nm, QtGui.QColor(214, 222, 236))
+                self._text(qp, val_col, y, _fmt_cd_readable(cd_v),
+                           _cd_color(cd_v))
                 y += row_h
 
         # 섹션 2: 파력무참 지속시간 (로컬 감산).
         y = self._draw_section_header(qp, y, left_pad, "파력무참 지속시간")
         if not self._buff_rows:
             qp.setFont(self._font(9, bold=False))
-            qp.setPen(QtGui.QColor(120, 120, 130))
-            qp.drawText(name_col, y, "-")
+            self._text(qp, name_col, y, "-", QtGui.QColor(132, 138, 150))
             y += row_h
         else:
             qp.setFont(self._font(11))
@@ -543,14 +542,13 @@ class HunterHelperOverlay(_ScaledOverlay):
                 eff = self._eff_buff(
                     int(r.get("buff", 0) or 0), float(r.get("ts", 0.0) or 0.0)
                 )
-                qp.setPen(QtGui.QColor(120, 200, 255))
-                qp.drawText(name_col, y, nick)
+                self._text(qp, name_col, y, nick, QtGui.QColor(130, 205, 255))
                 if eff > 0:
-                    qp.setPen(QtGui.QColor(160, 230, 160))
-                    qp.drawText(val_col, y, _fmt_sec(eff))
+                    self._text(qp, val_col, y, _fmt_sec(eff),
+                               QtGui.QColor(150, 235, 165))
                 else:
-                    qp.setPen(QtGui.QColor(150, 150, 160))
-                    qp.drawText(val_col, y, "-")
+                    self._text(qp, val_col, y, "-",
+                               QtGui.QColor(156, 160, 172))
                 y += row_h
 
         self._draw_edit_hint(qp)
@@ -561,19 +559,18 @@ class HunterHelperOverlay(_ScaledOverlay):
         y = sep_y + self._px(16)
         dot = self._px(5)
         qp.setPen(QtCore.Qt.NoPen)
-        qp.setBrush(QtGui.QColor(ar, ag, ab, self._a(235)))
+        qp.setBrush(QtGui.QColor(ar, ag, ab, 255))
         qp.drawEllipse(left_pad, y - self._px(8), dot, dot)
         tx = left_pad + dot + self._px(6)
-        qp.setFont(self._font(10))
-        qp.setPen(QtGui.QColor(208, 220, 240))
-        qp.drawText(tx, y, title)
+        qp.setFont(self._font(9))
+        self._text(qp, tx, y, title, QtGui.QColor(212, 224, 242))
         fm = qp.fontMetrics()
         lx = tx + fm.horizontalAdvance(title) + self._px(8)
         rx = self.width() - left_pad
         if rx > lx:
             grad = QtGui.QLinearGradient(float(lx), 0.0, float(rx), 0.0)
-            grad.setColorAt(0.0, QtGui.QColor(ar, ag, ab, self._a(130)))
-            grad.setColorAt(1.0, QtGui.QColor(ar, ag, ab, self._a(0)))
+            grad.setColorAt(0.0, QtGui.QColor(ar, ag, ab, 150))
+            grad.setColorAt(1.0, QtGui.QColor(ar, ag, ab, 0))
             qp.setPen(QtGui.QPen(QtGui.QBrush(grad), self._px(1)))
             qp.drawLine(lx, y - self._px(4), rx, y - self._px(4))
         return y + self._px(18)

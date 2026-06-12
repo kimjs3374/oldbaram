@@ -71,9 +71,10 @@ class HuntNavOverlay(_ScaledOverlay):
     # ── 지오메트리 ───────────────────────────────────────────────────────
 
     def _grid_metrics(self):
+        # 제목 제거(2026-06-12 사용자 요청) → 그리드를 위로 끌어올림.
         w = self.width()
-        top = self._px(30)          # 타이틀 아래 그리드 시작.
-        row_h = self._px(36)
+        top = self._px(16)
+        row_h = self._px(38)
         return w, top, row_h
 
     def _slot_center(self, slot: str):
@@ -83,13 +84,33 @@ class HuntNavOverlay(_ScaledOverlay):
 
     def _relayout(self) -> None:
         w = self._px(self._base_w)
-        top = self._px(30)
-        row_h = self._px(36)
+        top = self._px(16)
+        row_h = self._px(38)
         grid_h = row_h * 3
-        bottom_h = self._px(18) * 2 + self._px(8)
+        bottom_h = self._px(19) * 2 + self._px(10)
         self.setFixedSize(w, top + grid_h + bottom_h)
 
     # ── 렌더 ────────────────────────────────────────────────────────────
+
+    def _map_chip(self, qp, label: str) -> None:
+        """우상단 미니 맵 식별 칩 (큰 제목 대신, 작게)."""
+        ar, ag, ab = ACCENT_NAV
+        qp.setFont(self._font(8))
+        fm = qp.fontMetrics()
+        cw = fm.horizontalAdvance(label) + self._px(14)
+        ch = self._px(16)
+        x0 = self.width() - cw - self._px(9)
+        y0 = self._px(8)
+        rect = QtCore.QRectF(x0, y0, cw, ch)
+        qp.setPen(QtCore.Qt.NoPen)
+        qp.setBrush(QtGui.QColor(ar, ag, ab, (48)))
+        qp.drawRoundedRect(rect, ch / 2, ch / 2)
+        qp.setPen(QtGui.QPen(QtGui.QColor(ar, ag, ab, (150)), self._px(1)))
+        qp.setBrush(QtCore.Qt.NoBrush)
+        qp.drawRoundedRect(rect, ch / 2, ch / 2)
+        self._text_rect(qp, QtCore.QRect(int(x0), int(y0), int(cw), int(ch)),
+                        int(QtCore.Qt.AlignCenter), label,
+                        QtGui.QColor(255, 214, 130))
 
     def paintEvent(self, _ev):
         qp = QtGui.QPainter(self)
@@ -104,26 +125,19 @@ class HuntNavOverlay(_ScaledOverlay):
         order = [int(v) for v in (s.get("order") or [])]
         state = str(s.get("state") or "idle")
         out_of_order = bool(s.get("out_of_order"))
-        # 강조 타이밍 (사용자 2026-06-12): 굴(7)에서 나와 허브(선비족x) 도착
-        # = 강한 강조. 굴 내부 사냥 중엔 다음 굴을 옅은 테두리로만 표시.
+        # 강조 타이밍: 굴(7)에서 나와 허브(선비족x) 도착 = 강한 강조.
         hub_alert = bool(s.get("at_hub")) and bool(s.get("from_z7"))
 
         left_pad = self._px(13)
-        # 타이틀.
-        if x in LAYOUTS:
-            self._draw_title(qp, f"{base}{x} 네비")
-        else:
-            self._draw_title(qp, "선비족 네비 — 맵 인식 대기")
-
         _, top, row_h = self._grid_metrics()
         grid_bottom_y = top + row_h * 3
 
         if x in LAYOUTS:
+            self._map_chip(qp, f"{base}{x}")
             layout = LAYOUTS[x]
             # 링(통로) — 슬롯 중심을 지나는 라운드 사각.
             lm = self._slot_center("LM")
             tl = self._slot_center("TL")
-            br_ = self._slot_center("BR")
             ring = QtCore.QRectF(
                 lm[0], tl[1],
                 self._slot_center("RM")[0] - lm[0],
@@ -131,11 +145,10 @@ class HuntNavOverlay(_ScaledOverlay):
             )
             qp.setBrush(QtCore.Qt.NoBrush)
             qp.setPen(QtGui.QPen(
-                QtGui.QColor(80, 95, 125, self._a(220)), self._px(2)))
-            qp.drawRoundedRect(ring, self._px(14), self._px(14))
+                QtGui.QColor(96, 112, 146, (210)), self._px(2)))
+            qp.drawRoundedRect(ring, self._px(15), self._px(15))
             # 노드 박스 (고정 크기, 중심 정렬 — 오와열 보장).
-            bw, bh = self._px(48), self._px(22)
-            qp.setFont(self._font(10))
+            bw, bh = self._px(46), self._px(24)
             for slot, label in layout.items():
                 cx, cy = self._slot_center(slot)
                 rect = QtCore.QRectF(cx - bw / 2, cy - bh / 2, bw, bh)
@@ -143,68 +156,86 @@ class HuntNavOverlay(_ScaledOverlay):
                 is_next = (not is_entry and next_y and label == next_y)
                 is_cur = (not is_entry and cur_y and label == cur_y)
                 in_order = (not is_entry and label in order)
-                # 채움/테두리.
+                nr = self._px(7)
+                halo = True
+                # 노드 채움 — 은은한 그라데이션.
                 if is_next and hub_alert:
-                    # 허브 도착(굴(7) 완주 직후) — 강한 강조.
-                    fill = QtGui.QColor(255, 200, 50, self._a(235))
-                    pen = QtGui.QPen(QtGui.QColor(255, 255, 255), self._px(2))
-                    txt_c = QtGui.QColor(20, 20, 20)
+                    grad = QtGui.QLinearGradient(
+                        rect.topLeft(), rect.bottomLeft())
+                    grad.setColorAt(0.0, QtGui.QColor(255, 216, 96, (245)))
+                    grad.setColorAt(1.0, QtGui.QColor(247, 178, 36, (245)))
+                    fill = QtGui.QBrush(grad)
+                    pen = QtGui.QPen(QtGui.QColor(255, 255, 255, (255)),
+                                     self._px(2))
+                    txt_c = QtGui.QColor(40, 30, 8)
+                    halo = False
                 elif is_next:
-                    # 굴 내부 사냥 중 — 다음 굴 옅은 표시.
-                    fill = QtGui.QColor(40, 44, 54, self._a(220))
+                    fill = QtGui.QColor(46, 50, 62, (225))
                     pen = QtGui.QPen(
-                        QtGui.QColor(255, 200, 50, self._a(255)), self._px(2))
-                    txt_c = QtGui.QColor(255, 210, 90)
+                        QtGui.QColor(255, 200, 60, (255)), self._px(2))
+                    txt_c = QtGui.QColor(255, 214, 110)
                 elif is_entry:
-                    fill = QtGui.QColor(35, 45, 60, self._a(220))
+                    fill = QtGui.QColor(34, 44, 60, (225))
                     pen = QtGui.QPen(
-                        QtGui.QColor(90, 110, 150, self._a(255)), 1)
-                    txt_c = QtGui.QColor(150, 175, 205)
+                        QtGui.QColor(96, 120, 160, (235)), self._px(1))
+                    txt_c = QtGui.QColor(158, 184, 214)
                 else:
-                    fill = QtGui.QColor(40, 44, 54, self._a(220))
+                    fill = QtGui.QColor(40, 44, 55, (225))
                     pen = QtGui.QPen(
-                        QtGui.QColor(90, 100, 120, self._a(255)), 1)
-                    txt_c = (QtGui.QColor(215, 215, 225) if in_order
-                             else QtGui.QColor(120, 120, 130))
+                        QtGui.QColor(92, 102, 124, (220)), self._px(1))
+                    txt_c = (QtGui.QColor(224, 226, 236) if in_order
+                             else QtGui.QColor(132, 136, 148))
                 if is_cur:
-                    pen = QtGui.QPen(QtGui.QColor(110, 230, 130), self._px(2))
+                    pen = QtGui.QPen(QtGui.QColor(118, 240, 142, (255)),
+                                     self._px(2))
+                # 다음 굴(허브 강조) 글로우.
+                if is_next and hub_alert:
+                    qp.setPen(QtCore.Qt.NoPen)
+                    qp.setBrush(QtGui.QColor(255, 210, 80, (60)))
+                    qp.drawRoundedRect(
+                        rect.adjusted(-self._px(3), -self._px(3),
+                                      self._px(3), self._px(3)),
+                        nr + self._px(3), nr + self._px(3))
                 qp.setBrush(fill)
                 qp.setPen(pen)
-                qp.drawRoundedRect(rect, self._px(5), self._px(5))
-                qp.setPen(txt_c)
+                qp.drawRoundedRect(rect, nr, nr)
                 text = "입구" if is_entry else (
                     f"▶{label}" if (is_next and hub_alert) else str(label))
-                qp.drawText(rect, QtCore.Qt.AlignCenter, text)
+                qp.setFont(self._font(10))
+                self._text_rect(qp, rect.toRect(),
+                                int(QtCore.Qt.AlignCenter), text, txt_c,
+                                halo=halo)
         else:
             qp.setFont(self._font(9, bold=False))
-            qp.setPen(QtGui.QColor(140, 140, 150))
-            qp.drawText(left_pad, top + row_h, "선비족x-y 맵 진입 시 표시")
+            self._text(qp, left_pad, top + row_h,
+                       "선비족x-y 맵 진입 시 표시",
+                       QtGui.QColor(150, 156, 168))
 
         # 하단 2줄: 순서/상태 + 다음 굴.
-        y_txt = grid_bottom_y + self._px(14)
+        y_txt = grid_bottom_y + self._px(15)
         qp.setFont(self._font(9, bold=False))
         if order:
-            qp.setPen(QtGui.QColor(200, 205, 215))
-            qp.drawText(
-                left_pad, y_txt,
-                f"순서: {'→'.join(map(str, order))} "
-                f"({_STATE_KR.get(state, state)})")
+            self._text(qp, left_pad, y_txt,
+                       f"순서  {'→'.join(map(str, order))}   "
+                       f"({_STATE_KR.get(state, state)})",
+                       QtGui.QColor(202, 208, 220))
         else:
-            qp.setPen(QtGui.QColor(140, 140, 150))
-            qp.drawText(left_pad, y_txt,
-                        f"순서: 미정 ({_STATE_KR.get(state, state)})")
-        y_txt += self._px(18)
+            self._text(qp, left_pad, y_txt,
+                       f"순서  미정  ({_STATE_KR.get(state, state)})",
+                       QtGui.QColor(150, 156, 168))
+        y_txt += self._px(19)
         if next_y and hub_alert:
-            qp.setFont(self._font(10))
-            qp.setPen(QtGui.QColor(255, 200, 50))
-            qp.drawText(left_pad, y_txt, f"▶ {next_y}굴로 이동!")
+            qp.setFont(self._font(11))
+            self._text(qp, left_pad, y_txt, f"▶  {next_y}굴로 이동!",
+                       QtGui.QColor(255, 206, 70))
         elif next_y:
-            qp.setPen(QtGui.QColor(255, 210, 90))
-            line = f"다음: {next_y}굴"
+            qp.setFont(self._font(10))
+            line = f"다음  {next_y}굴"
             if out_of_order and cur_y:
-                line += f"  (현재 {cur_y}굴은 순서 밖)"
-            qp.drawText(left_pad, y_txt, line)
+                line += f"   (현재 {cur_y}굴 순서밖)"
+            self._text(qp, left_pad, y_txt, line, QtGui.QColor(255, 216, 110))
         else:
-            qp.setPen(QtGui.QColor(140, 140, 150))
-            qp.drawText(left_pad, y_txt, "다음: -")
+            qp.setFont(self._font(10))
+            self._text(qp, left_pad, y_txt, "다음  -",
+                       QtGui.QColor(150, 156, 168))
         self._draw_edit_hint(qp)
