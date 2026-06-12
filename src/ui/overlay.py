@@ -411,27 +411,72 @@ class _ScaledOverlay(QtWidgets.QWidget):
                  (1, 0), (-1, 1), (0, 1), (1, 1))
 
     def _text(self, qp: QtGui.QPainter, x: int, y: int, s: str,
-              color, halo: bool = True, halo_alpha: int = 220) -> None:
-        """halo(검은 외곽선) 텍스트. 투명도와 무관하게 항상 또렷."""
+              color, halo: bool = True, halo_alpha: int = 240,
+              shadow: bool = True, outline: int = 1) -> None:
+        """입체 HUD 텍스트: 드롭섀도(깊이) + 검은 외곽선(가독) + 본문.
+        투명도와 무관하게 어떤 배경에도 또렷. outline=링 두께(px단위 반복)."""
+        if shadow:
+            sh = max(1, self._px(2))
+            qp.setPen(QtGui.QColor(0, 0, 0, 150))
+            qp.drawText(int(x + sh), int(y + sh), s)
         if halo:
             o = max(1, self._px(1))
             qp.setPen(QtGui.QColor(0, 0, 0, halo_alpha))
-            for dx, dy in self._HALO_OFF:
-                qp.drawText(int(x + dx * o), int(y + dy * o), s)
+            for k in range(1, max(1, int(outline)) + 1):
+                for dx, dy in self._HALO_OFF:
+                    qp.drawText(int(x + dx * o * k), int(y + dy * o * k), s)
         qp.setPen(color)
         qp.drawText(int(x), int(y), s)
 
     def _text_rect(self, qp: QtGui.QPainter, rect, flags, s: str,
-                   color, halo: bool = True, halo_alpha: int = 220) -> None:
-        """halo 텍스트 (정렬 rect 버전)."""
+                   color, halo: bool = True, halo_alpha: int = 240,
+                   shadow: bool = True, outline: int = 1) -> None:
+        """입체 HUD 텍스트 (정렬 rect 버전)."""
+        if shadow:
+            sh = max(1, self._px(2))
+            qp.setPen(QtGui.QColor(0, 0, 0, 150))
+            qp.drawText(rect.translated(sh, sh), flags, s)
         if halo:
             o = max(1, self._px(1))
             qp.setPen(QtGui.QColor(0, 0, 0, halo_alpha))
-            for dx, dy in self._HALO_OFF:
-                qp.drawText(rect.translated(int(dx * o), int(dy * o)),
-                            flags, s)
+            for k in range(1, max(1, int(outline)) + 1):
+                for dx, dy in self._HALO_OFF:
+                    qp.drawText(rect.translated(int(dx * o * k),
+                                                int(dy * o * k)), flags, s)
         qp.setPen(color)
         qp.drawText(rect, flags, s)
+
+    def _chip(self, qp: QtGui.QPainter, rect, fill, *, radius=None,
+              border=None, shadow=True) -> None:
+        """입체 칩(둥근 박스): 드롭섀도 + 채움 + 상단 글로스 + 테두리.
+        fill 은 QColor 또는 QBrush. 투명도 비의존(항상 또렷)."""
+        if radius is None:
+            radius = self._px(7)
+        rf = rect if isinstance(rect, QtCore.QRectF) else QtCore.QRectF(rect)
+        if shadow:
+            sh = max(1, self._px(2))
+            qp.setPen(QtCore.Qt.NoPen)
+            qp.setBrush(QtGui.QColor(0, 0, 0, 110))
+            qp.drawRoundedRect(rf.translated(sh, sh + self._px(1)),
+                               radius, radius)
+        qp.setPen(QtCore.Qt.NoPen)
+        qp.setBrush(fill)
+        qp.drawRoundedRect(rf, radius, radius)
+        # 상단 글로스 하이라이트.
+        qp.save()
+        gpath = QtGui.QPainterPath()
+        gpath.addRoundedRect(rf, radius, radius)
+        qp.setClipPath(gpath)
+        gloss = QtGui.QLinearGradient(0.0, rf.top(),
+                                      0.0, rf.top() + rf.height() * 0.55)
+        gloss.setColorAt(0.0, QtGui.QColor(255, 255, 255, 46))
+        gloss.setColorAt(1.0, QtGui.QColor(255, 255, 255, 0))
+        qp.fillRect(rf, QtGui.QBrush(gloss))
+        qp.restore()
+        if border is not None:
+            qp.setPen(border)
+            qp.setBrush(QtCore.Qt.NoBrush)
+            qp.drawRoundedRect(rf, radius, radius)
 
     def _draw_title(self, qp: QtGui.QPainter, text: str,
                     baseline_y: int = None, accent=None) -> None:
@@ -800,12 +845,12 @@ class HuntOverlay(_ScaledOverlay):
                            QtGui.QColor(150, 200, 170))
                 qp.setFont(self._font(17))
                 self._text(qp, left, num_y, _fmt_xp(stats["gain"]),
-                           QtGui.QColor(120, 245, 160))
+                           QtGui.QColor(120, 245, 160), outline=2)
                 xph = stats["xph"]
                 qp.setFont(self._font(15))
                 self._text(qp, col2, num_y,
                            (_fmt_xph(xph) if xph > 0 else "—"),
-                           QtGui.QColor(238, 244, 252))
+                           QtGui.QColor(240, 246, 254), outline=2)
             y = num_y + self._px(12)
             for s in sec:
                 if qp is not None:
