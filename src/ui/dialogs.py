@@ -195,16 +195,16 @@ class OverlayDialog(QtWidgets.QDialog):
             self.kind_chks[kind] = c
             grid.addWidget(c, row, 0)
             sld = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-            sld.setMinimum(10)
+            sld.setMinimum(0)
             sld.setMaximum(100)
             sld.setSingleStep(5)
             sld.setPageStep(10)
             sld.setValue(90)
-            sld.setToolTip(f"{label} 투명도 (10~100%). 낮을수록 투명.")
+            sld.setToolTip(f"{label} 투명도 (0~100%). 0=완전 투명, 낮을수록 투명.")
             self.kind_op_sliders[kind] = sld
             grid.addWidget(sld, row, 1)
             spn = QtWidgets.QSpinBox()
-            spn.setRange(10, 100)
+            spn.setRange(0, 100)
             spn.setValue(90)
             spn.setSuffix("%")
             spn.setToolTip(f"{label} 투명도 — 숫자 직접 입력 가능.")
@@ -218,6 +218,33 @@ class OverlayDialog(QtWidgets.QDialog):
                 lambda v, k=kind: self._sync_slider(k, int(v)))
         grid.setColumnStretch(1, 1)
         root.addWidget(box)
+
+        # 선비족 네비 크기조절 (2026-06-12 사용자 요청) — 50~200%.
+        # 해상도 자동 스케일에 사용자 배율을 곱해 적용 (set_user_scale).
+        nav_box = QtWidgets.QGroupBox("선비족 네비 크기")
+        nrow = QtWidgets.QHBoxLayout(nav_box)
+        nrow.setContentsMargins(8, 4, 8, 4)
+        nrow.setSpacing(6)
+        self.nav_size_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.nav_size_slider.setMinimum(50)
+        self.nav_size_slider.setMaximum(200)
+        self.nav_size_slider.setSingleStep(5)
+        self.nav_size_slider.setPageStep(10)
+        self.nav_size_slider.setValue(100)
+        self.nav_size_slider.setToolTip(
+            "선비족 네비게이션 오버레이 크기 (50~200%). 100%=해상도 기본.")
+        nrow.addWidget(self.nav_size_slider, 1)
+        self.nav_size_spin = QtWidgets.QSpinBox()
+        self.nav_size_spin.setRange(50, 200)
+        self.nav_size_spin.setValue(100)
+        self.nav_size_spin.setSuffix("%")
+        self.nav_size_spin.setToolTip("네비 크기 — 숫자 직접 입력 가능.")
+        nrow.addWidget(self.nav_size_spin)
+        # 내부 동기: 슬라이더 → 스핀(외부 핸들러 1회), 스핀 → 슬라이더(차단).
+        self.nav_size_slider.valueChanged.connect(
+            lambda v: self.nav_size_spin.setValue(int(v)))
+        self.nav_size_spin.valueChanged.connect(self._sync_nav_slider)
+        root.addWidget(nav_box)
 
         self.chk_overlay_edit = QtWidgets.QCheckBox("위치 편집 (드래그로 이동)")
         self.chk_overlay_edit.setToolTip(
@@ -240,9 +267,28 @@ class OverlayDialog(QtWidgets.QDialog):
         finally:
             sld.blockSignals(False)
 
+    def _sync_nav_slider(self, v: int) -> None:
+        if self.nav_size_slider.value() == v:
+            return
+        self.nav_size_slider.blockSignals(True)
+        try:
+            self.nav_size_slider.setValue(int(v))
+        finally:
+            self.nav_size_slider.blockSignals(False)
+
+    def set_nav_size(self, pct: int) -> None:
+        """프로그램(설정 복원)용 — 시그널 없이 슬라이더+스핀 동시 세팅."""
+        pct = max(50, min(200, int(pct)))
+        for w in (self.nav_size_slider, self.nav_size_spin):
+            w.blockSignals(True)
+            try:
+                w.setValue(pct)
+            finally:
+                w.blockSignals(False)
+
     def set_kind_opacity(self, kind: str, pct: int) -> None:
         """프로그램(설정 복원)용 — 시그널 없이 슬라이더+스핀 동시 세팅."""
-        pct = max(10, min(100, int(pct)))
+        pct = max(0, min(100, int(pct)))
         for w in (self.kind_op_sliders.get(kind),
                   self.kind_op_spins.get(kind)):
             if w is None:

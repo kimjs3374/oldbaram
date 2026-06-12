@@ -26,7 +26,7 @@ from typing import Dict, Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from .overlay import _ScaledOverlay
+from .overlay import _ScaledOverlay, ACCENT_HELPER
 
 
 _PARLYUK_CD_SEC = 180            # 파력무참 쿨타임 (s).
@@ -497,23 +497,17 @@ class HunterHelperOverlay(_ScaledOverlay):
     def paintEvent(self, _ev):
         qp = QtGui.QPainter(self)
         qp.setRenderHint(QtGui.QPainter.Antialiasing, True)
-        qp.setPen(QtCore.Qt.NoPen)
-        qp.setBrush(QtGui.QColor(18, 20, 26, self._a(200)))
-        radius = self._px(8)
-        qp.drawRoundedRect(self.rect(), radius, radius)
-        qp.setPen(QtGui.QColor(90, 110, 160, self._a(255)))
-        qp.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), radius, radius)
+        self._draw_panel_bg(qp, ACCENT_HELPER)
 
-        left_pad = self._px(12)
+        left_pad = self._px(13)
         row_h = self._px(20)
-        qp.setFont(self._font(10))
-        qp.setPen(QtGui.QColor(180, 210, 255))
-        qp.drawText(
-            left_pad, self._px(18),
+        self._draw_title(
+            qp,
             f"사냥 도우미 — {subclass_label(self._subclass)} {rank_label(self._rank)}",
+            baseline_y=self._px(19),
         )
 
-        y = self._px(18) + self._px(10)
+        y = self._px(19) + self._px(11)
         # 섹션 1: 사용가능스킬.
         y = self._draw_section_header(qp, y, left_pad, "사용가능스킬")
         skills = self._skill_lines()
@@ -562,12 +556,24 @@ class HunterHelperOverlay(_ScaledOverlay):
         self._draw_edit_hint(qp)
 
     def _draw_section_header(self, qp, y: int, left_pad: int, title: str) -> int:
+        ar, ag, ab = ACCENT_HELPER
         sep_y = y + self._px(2)
-        qp.setPen(QtGui.QColor(70, 90, 130, self._a(255)))
-        qp.drawLine(left_pad, sep_y,
-                    self.width() - left_pad, sep_y)
         y = sep_y + self._px(16)
+        dot = self._px(5)
+        qp.setPen(QtCore.Qt.NoPen)
+        qp.setBrush(QtGui.QColor(ar, ag, ab, self._a(235)))
+        qp.drawEllipse(left_pad, y - self._px(8), dot, dot)
+        tx = left_pad + dot + self._px(6)
         qp.setFont(self._font(10))
-        qp.setPen(QtGui.QColor(180, 210, 255))
-        qp.drawText(left_pad, y, title)
+        qp.setPen(QtGui.QColor(208, 220, 240))
+        qp.drawText(tx, y, title)
+        fm = qp.fontMetrics()
+        lx = tx + fm.horizontalAdvance(title) + self._px(8)
+        rx = self.width() - left_pad
+        if rx > lx:
+            grad = QtGui.QLinearGradient(float(lx), 0.0, float(rx), 0.0)
+            grad.setColorAt(0.0, QtGui.QColor(ar, ag, ab, self._a(130)))
+            grad.setColorAt(1.0, QtGui.QColor(ar, ag, ab, self._a(0)))
+            qp.setPen(QtGui.QPen(QtGui.QBrush(grad), self._px(1)))
+            qp.drawLine(lx, y - self._px(4), rx, y - self._px(4))
         return y + self._px(18)

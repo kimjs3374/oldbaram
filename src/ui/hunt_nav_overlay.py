@@ -14,7 +14,7 @@ from typing import Optional
 
 from PyQt5 import QtCore, QtGui
 
-from .overlay import _ScaledOverlay
+from .overlay import _ScaledOverlay, ACCENT_NAV
 from ..app.hunt_nav import LAYOUTS
 
 _STATE_KR = {
@@ -94,13 +94,7 @@ class HuntNavOverlay(_ScaledOverlay):
     def paintEvent(self, _ev):
         qp = QtGui.QPainter(self)
         qp.setRenderHint(QtGui.QPainter.Antialiasing, True)
-        # 배경 박스 (투명도 적용).
-        qp.setPen(QtCore.Qt.NoPen)
-        qp.setBrush(QtGui.QColor(18, 20, 26, self._a(200)))
-        radius = self._px(8)
-        qp.drawRoundedRect(self.rect(), radius, radius)
-        qp.setPen(QtGui.QColor(90, 110, 160, self._a(255)))
-        qp.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), radius, radius)
+        self._draw_panel_bg(qp, ACCENT_NAV)
 
         s = self._snap or {}
         base = str(s.get("base") or "선비족")
@@ -114,14 +108,12 @@ class HuntNavOverlay(_ScaledOverlay):
         # = 강한 강조. 굴 내부 사냥 중엔 다음 굴을 옅은 테두리로만 표시.
         hub_alert = bool(s.get("at_hub")) and bool(s.get("from_z7"))
 
-        left_pad = self._px(12)
+        left_pad = self._px(13)
         # 타이틀.
-        qp.setFont(self._font(10))
-        qp.setPen(QtGui.QColor(180, 210, 255))
         if x in LAYOUTS:
-            qp.drawText(left_pad, self._px(20), f"{base}{x} 네비")
+            self._draw_title(qp, f"{base}{x} 네비")
         else:
-            qp.drawText(left_pad, self._px(20), "선비족 네비 — 맵 인식 대기")
+            self._draw_title(qp, "선비족 네비 — 맵 인식 대기")
 
         _, top, row_h = self._grid_metrics()
         grid_bottom_y = top + row_h * 3

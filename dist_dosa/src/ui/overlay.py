@@ -21,6 +21,14 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 _BASELINE_H = 720.0  # 스케일 기준 해상도 높이.
 
+# 오버레이 종류별 액센트 색 (헤더 밴드 / 좌측 바 / 테두리).
+# 색으로 오버레이를 즉시 구분 — 가독성·식별성 향상 (2026-06-12).
+ACCENT_CD = (95, 155, 240)      # 힐러 쿨 상태 — 블루
+ACCENT_HUNT = (110, 205, 150)   # 사냥 분석 — 그린
+ACCENT_NAV = (255, 195, 95)     # 선비족 네비 — 앰버
+ACCENT_HELPER = (185, 150, 250)  # 사냥 도우미 — 퍼플
+ACCENT_ALERT = (255, 210, 90)   # 스킬 알림 — 옐로
+
 
 def _fmt_cd(sec: int) -> str:
     if sec is None or sec < 0:
@@ -104,6 +112,9 @@ class _ScaledOverlay(QtWidgets.QWidget):
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
         self.setAttribute(QtCore.Qt.WA_ShowWithoutActivating, True)
         self._scale: float = 1.0
+        # 사용자 수동 크기 배율 (해상도 scale 과 곱해짐). 0.5~2.5.
+        # 네비게이션 오버레이 크기조절(2026-06-12) — 모든 오버레이 공통 지원.
+        self._user_scale: float = 1.0
         self._game_rect: Optional[Tuple[int, int, int, int]] = None
         self._map_rect: Optional[Tuple[int, int, int, int]] = None
         self._target_hwnd: Optional[int] = None
@@ -315,13 +326,83 @@ class _ScaledOverlay(QtWidgets.QWidget):
         """서브클래스 오버라이드."""
         pass
 
+    def set_user_scale(self, factor: float) -> None:
+        """사용자 수동 크기 배율 (0.5~2.5). 해상도 scale 과 곱해져 적용.
+
+        호출 시 서브클래스 `_on_scale_changed`(레이아웃/앵커 재계산)까지 연쇄.
+        """
+        try:
+            v = float(factor)
+        except Exception:
+            v = 1.0
+        v = max(0.5, min(2.5, v))
+        if abs(v - self._user_scale) < 1e-3:
+            return
+        self._user_scale = v
+        self._on_scale_changed()
+        self.update()
+
+    def _eff_scale(self) -> float:
+        return self._scale * self._user_scale
+
     def _px(self, base: int) -> int:
-        return max(1, int(round(base * self._scale)))
+        return max(1, int(round(base * self._eff_scale())))
 
     def _font(self, pt_base: int, bold: bool = True) -> QtGui.QFont:
-        f = QtGui.QFont("Malgun Gothic", max(7, int(round(pt_base * self._scale))))
+        f = QtGui.QFont(
+            "Malgun Gothic",
+            max(7, int(round(pt_base * self._eff_scale()))))
         f.setBold(bold)
         return f
+
+    # ── 공통 패널 스타일 (가독성·디자인 통일, 2026-06-12) ─────────────────
+    _PANEL_ACCENT = ACCENT_CD
+
+    def _draw_panel_bg(self, qp: QtGui.QPainter, accent=None) -> None:
+        """공통 패널 배경: 본체 + 상단 헤더 밴드(그라데이션) + 좌측 액센트 바
+        + 액센트 테두리. 기존 (배경+테두리) 블록의 드롭인 대체 —
+        지오메트리 불변(타이틀/본문 좌표 그대로). 투명도(self._a)는 전부 반영.
+        """
+        ar, ag, ab = accent or self._PANEL_ACCENT
+        r = self.rect()
+        radius = self._px(9)
+        path = QtGui.QPainterPath()
+        path.addRoundedRect(QtCore.QRectF(r), float(radius), float(radius))
+        qp.save()
+        qp.setClipPath(path)
+        # 본체 (살짝 더 짙은 베이스 → 글자 대비 향상).
+        qp.setPen(QtCore.Qt.NoPen)
+        qp.setBrush(QtGui.QColor(15, 17, 23, self._a(216)))
+        qp.drawRect(r)
+        # 상단 헤더 밴드 (액센트 그라데이션).
+        band_h = self._px(30)
+        grad = QtGui.QLinearGradient(
+            0.0, float(r.top()), 0.0, float(r.top() + band_h))
+        grad.setColorAt(0.0, QtGui.QColor(ar, ag, ab, self._a(72)))
+        grad.setColorAt(1.0, QtGui.QColor(ar, ag, ab, self._a(8)))
+        qp.fillRect(QtCore.QRect(r.left(), r.top(), r.width(), band_h),
+                    QtGui.QBrush(grad))
+        # 헤더 하단 구분 라인.
+        qp.setPen(QtGui.QPen(QtGui.QColor(ar, ag, ab, self._a(165)), 1))
+        qp.drawLine(r.left(), r.top() + band_h, r.right(), r.top() + band_h)
+        # 좌측 액센트 바.
+        qp.setPen(QtCore.Qt.NoPen)
+        qp.setBrush(QtGui.QColor(ar, ag, ab, self._a(235)))
+        qp.drawRect(QtCore.QRect(r.left(), r.top(), self._px(3), r.height()))
+        qp.restore()
+        # 외곽 테두리 (액센트 틴트).
+        qp.setPen(QtGui.QPen(QtGui.QColor(ar, ag, ab, self._a(150)), 1))
+        qp.setBrush(QtCore.Qt.NoBrush)
+        qp.drawRoundedRect(r.adjusted(0, 0, -1, -1), radius, radius)
+
+    def _draw_title(self, qp: QtGui.QPainter, text: str,
+                    baseline_y: int = None) -> None:
+        """헤더 밴드 위 타이틀 (밝은 흰색, 좌측 바 옆)."""
+        qp.setFont(self._font(10))
+        qp.setPen(QtGui.QColor(228, 238, 252))
+        qp.drawText(self._px(13),
+                    baseline_y if baseline_y is not None else self._px(20),
+                    text)
 
     def _draw_edit_hint(self, qp: QtGui.QPainter) -> None:
         """편집 모드 시 노란 점선 테두리 + 좌상단 작은 힌트."""
@@ -502,44 +583,37 @@ class GameOverlay(_ScaledOverlay):
     def paintEvent(self, _ev):
         qp = QtGui.QPainter(self)
         qp.setRenderHint(QtGui.QPainter.Antialiasing, True)
-        # ===== 배경·테두리: 투명도 적용 =====
-        qp.setPen(QtCore.Qt.NoPen)
-        qp.setBrush(QtGui.QColor(18, 20, 26, self._a(200)))
-        radius = self._px(8)
-        qp.drawRoundedRect(self.rect(), radius, radius)
-        qp.setPen(QtGui.QColor(90, 110, 160, self._a(255)))
-        qp.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), radius, radius)
+        self._draw_panel_bg(qp, ACCENT_CD)
         # ===== 이하 글씨: 투명도 영향 없이 원본 alpha 로 렌더 =====
-        left_pad = self._px(12)
-        nick_col = self._px(90)
-        qp.setFont(self._font(10))
-        qp.setPen(QtGui.QColor(180, 210, 255))
-        qp.drawText(left_pad, self._px(20), "힐러 상태")
+        left_pad = self._px(13)
+        nick_col = self._px(92)
+        self._draw_title(qp, "힐러 상태")
         lines = self._visible_lines()
-        y = self._px(38)
+        y = self._px(40)
         row_h = self._px(22)
         if not lines:
             qp.setFont(self._font(9, bold=False))
-            qp.setPen(QtGui.QColor(140, 140, 150))
+            qp.setPen(QtGui.QColor(150, 155, 165))
             qp.drawText(left_pad, y, "힐러 수신 대기")
             y += row_h
         else:
-            qp.setFont(self._font(11))
             last_idx = -999
             for idx, nick, text, cd in lines:
                 if idx != last_idx:
-                    qp.setPen(QtGui.QColor(120, 200, 255))
+                    qp.setFont(self._font(10))
+                    qp.setPen(QtGui.QColor(130, 205, 255))
                     qp.drawText(left_pad, y, f"{nick}")
                     last_idx = idx
                 # cd<=0: 준비됨/xph(녹색). 쿨 임박~진행은 잔여초별 색.
                 if cd <= 0:
-                    color = QtGui.QColor(160, 230, 160)
+                    color = QtGui.QColor(150, 235, 160)
                 elif cd <= 5:
-                    color = QtGui.QColor(240, 80, 80)
+                    color = QtGui.QColor(245, 95, 95)
                 elif cd <= 15:
-                    color = QtGui.QColor(240, 170, 60)
+                    color = QtGui.QColor(245, 180, 75)
                 else:
-                    color = QtGui.QColor(210, 210, 220)
+                    color = QtGui.QColor(214, 218, 228)
+                qp.setFont(self._font(11))
                 qp.setPen(color)
                 qp.drawText(nick_col, y, text)
                 y += row_h
@@ -653,42 +727,49 @@ class HuntOverlay(_ScaledOverlay):
             h += sep_gap + title_h + inner_row_h * len(m_lines)
         self.setFixedSize(w, h + self._px(6))
 
-    def _draw_section_header(self, qp, y: int, left_pad: int, title: str) -> int:
-        """구분선 + 섹션 타이틀. 다음 라인 y 반환."""
+    def _draw_section_header(self, qp, y: int, left_pad: int, title: str,
+                             accent=ACCENT_HUNT) -> int:
+        """섹션 구분: 액센트 점 + 타이틀 + 우측 페이드 라인. 다음 y 반환.
+        반환 y 계약은 기존(sep_y+px(18)+px(18))과 동일 — 레이아웃 불변."""
+        ar, ag, ab = accent
         sep_y = y + self._px(2)
-        qp.setPen(QtGui.QColor(70, 90, 130, self._a(255)))
-        qp.drawLine(left_pad, sep_y,
-                    self.width() - left_pad, sep_y)
         y = sep_y + self._px(18)
+        dot = self._px(5)
+        qp.setPen(QtCore.Qt.NoPen)
+        qp.setBrush(QtGui.QColor(ar, ag, ab, self._a(235)))
+        qp.drawEllipse(left_pad, y - self._px(8), dot, dot)
+        tx = left_pad + dot + self._px(6)
         qp.setFont(self._font(10))
-        qp.setPen(QtGui.QColor(180, 210, 255))
-        qp.drawText(left_pad, y, title)
+        qp.setPen(QtGui.QColor(205, 218, 238))
+        qp.drawText(tx, y, title)
+        fm = qp.fontMetrics()
+        lx = tx + fm.horizontalAdvance(title) + self._px(8)
+        rx = self.width() - left_pad
+        if rx > lx:
+            grad = QtGui.QLinearGradient(float(lx), 0.0, float(rx), 0.0)
+            grad.setColorAt(0.0, QtGui.QColor(ar, ag, ab, self._a(130)))
+            grad.setColorAt(1.0, QtGui.QColor(ar, ag, ab, self._a(0)))
+            qp.setPen(QtGui.QPen(QtGui.QBrush(grad), self._px(1)))
+            qp.drawLine(lx, y - self._px(4), rx, y - self._px(4))
         return y + self._px(18)
 
     def paintEvent(self, _ev):
         qp = QtGui.QPainter(self)
         qp.setRenderHint(QtGui.QPainter.Antialiasing, True)
-        qp.setPen(QtCore.Qt.NoPen)
-        qp.setBrush(QtGui.QColor(18, 20, 26, self._a(200)))
-        radius = self._px(8)
-        qp.drawRoundedRect(self.rect(), radius, radius)
-        qp.setPen(QtGui.QColor(90, 110, 160, self._a(255)))
-        qp.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), radius, radius)
-        left_pad = self._px(12)
-        qp.setFont(self._font(10))
-        qp.setPen(QtGui.QColor(180, 210, 255))
-        qp.drawText(left_pad, self._px(20), "사냥 분석")
-        y = self._px(38)
+        self._draw_panel_bg(qp, ACCENT_HUNT)
+        left_pad = self._px(13)
+        self._draw_title(qp, "사냥 분석")
+        y = self._px(40)
         inner_row_h = self._px(18)
         a_lines = self._analytics_lines()
         if not a_lines:
             qp.setFont(self._font(9, bold=False))
-            qp.setPen(QtGui.QColor(140, 140, 150))
+            qp.setPen(QtGui.QColor(150, 155, 165))
             qp.drawText(left_pad, y, "사냥 데이터 대기")
             y += inner_row_h
         else:
             qp.setFont(self._font(9, bold=False))
-            qp.setPen(QtGui.QColor(220, 220, 230))
+            qp.setPen(QtGui.QColor(224, 228, 238))
             for s in a_lines:
                 qp.drawText(left_pad, y, s)
                 y += inner_row_h
@@ -696,7 +777,7 @@ class HuntOverlay(_ScaledOverlay):
         if m_lines:
             y = self._draw_section_header(qp, y, left_pad, "맵 히스토리")
             qp.setFont(self._font(9, bold=False))
-            qp.setPen(QtGui.QColor(220, 220, 230))
+            qp.setPen(QtGui.QColor(224, 228, 238))
             for s in m_lines:
                 qp.drawText(left_pad, y, s)
                 y += inner_row_h
@@ -849,13 +930,25 @@ class SkillAlertOverlay(_ScaledOverlay):
                             "스킬 알림 영역 (드래그로 이동)")
                 self._draw_edit_hint(qp)
             return
-        radius = self._px(10)
-        # 배경·테두리 투명도 적용.
+        radius = self._px(11)
+        ar, ag, ab = ACCENT_ALERT
+        # 배경·테두리 투명도 적용 (가운데 강조형 — 액센트 글로우 테두리).
+        r = self.rect()
+        path = QtGui.QPainterPath()
+        path.addRoundedRect(QtCore.QRectF(r), float(radius), float(radius))
+        qp.save()
+        qp.setClipPath(path)
         qp.setPen(QtCore.Qt.NoPen)
-        qp.setBrush(QtGui.QColor(0, 0, 0, self._a(190)))
-        qp.drawRoundedRect(self.rect(), radius, radius)
-        qp.setPen(QtGui.QColor(255, 220, 80, self._a(180)))
-        qp.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), radius, radius)
+        qp.setBrush(QtGui.QColor(10, 11, 15, self._a(206)))
+        qp.drawRect(r)
+        grad = QtGui.QLinearGradient(0.0, float(r.top()), 0.0, float(r.bottom()))
+        grad.setColorAt(0.0, QtGui.QColor(ar, ag, ab, self._a(34)))
+        grad.setColorAt(1.0, QtGui.QColor(ar, ag, ab, self._a(0)))
+        qp.fillRect(r, QtGui.QBrush(grad))
+        qp.restore()
+        qp.setPen(QtGui.QPen(QtGui.QColor(ar, ag, ab, self._a(200)), self._px(2)))
+        qp.setBrush(QtCore.Qt.NoBrush)
+        qp.drawRoundedRect(r.adjusted(1, 1, -2, -2), radius, radius)
         # 메시지 글씨는 원본 alpha 그대로.
         qp.setFont(self._font(14))
         line_h = self._px(32)

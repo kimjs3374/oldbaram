@@ -96,6 +96,9 @@ def collect(mw) -> dict:
              for k, c in mw.overlay_kind_chks.items()}
             if hasattr(mw, "overlay_kind_chks") else {}
         ),
+        # 선비족 네비 사용자 크기 % (2026-06-12).
+        "overlay_nav_size": int(mw.nav_size_spin.value())
+            if hasattr(mw, "nav_size_spin") else 100,
         # 선비족 네비 (2026-06-12).
         "cave_order_text": mw.cave_order_edit.text()
             if hasattr(mw, "cave_order_edit") else "",
@@ -436,6 +439,15 @@ def load(mw):
                 iv = max(10, min(100, int(op_v)))
                 for _k in mw.overlay_op_spins:
                     mw.overlay_dlg.set_kind_opacity(_k, iv)
+    except Exception:
+        pass
+    # 선비족 네비 사용자 크기 복원 (2026-06-12) — overlay_on 토글보다 먼저.
+    # 생성 경로(_on_toggle_overlay)가 _nav_user_scale()로 스핀 값을 읽으므로
+    # 여기서 시그널 없이 맞춰 두지 않으면 100% 로 생성된다.
+    try:
+        ns_v = g("overlay_nav_size")
+        if ns_v is not None and hasattr(mw, "overlay_dlg"):
+            mw.overlay_dlg.set_nav_size(max(50, min(200, int(ns_v))))
     except Exception:
         pass
     # 오버레이 종류별 표시 복원 (2026-06-12) — overlay_on 강제 ON 보다 먼저

@@ -542,6 +542,9 @@ class MainWindow(QtWidgets.QMainWindow):
             _s.valueChanged.connect(
                 lambda v, k=_k: self._on_overlay_kind_opacity(k, v)
             )
+        # 선비족 네비 크기조절 (2026-06-12) — 스핀 값 변경 → user_scale 적용.
+        self.nav_size_spin = self.overlay_dlg.nav_size_spin
+        self.nav_size_spin.valueChanged.connect(self._on_nav_size_changed)
         ov_row = QtWidgets.QHBoxLayout()
         ov_row.setSpacing(6)
         self.btn_overlay_cfg = QtWidgets.QPushButton("오버레이…")
@@ -1708,11 +1711,11 @@ class MainWindow(QtWidgets.QMainWindow):
         }.get(kind)
 
     def _overlay_opacity_for(self, kind: str) -> float:
-        """kind 별 투명도 (0.1~1.0). 스핀(숫자 입력) 값 기준."""
+        """kind 별 투명도 (0.0~1.0). 스핀(숫자 입력) 값 기준."""
         try:
             s = self.overlay_op_spins.get(kind)
             if s is not None:
-                return max(0.1, min(1.0, int(s.value()) / 100.0))
+                return max(0.0, min(1.0, int(s.value()) / 100.0))
         except Exception:
             pass
         return 0.9
@@ -1722,10 +1725,33 @@ class MainWindow(QtWidgets.QMainWindow):
         ov = self._overlay_by_kind(kind)
         if ov is not None:
             try:
-                ov.set_opacity(max(0.1, min(1.0, int(v) / 100.0)))
+                ov.set_opacity(max(0.0, min(1.0, int(v) / 100.0)))
             except Exception:
                 pass
         # 스킬범위 오버레이는 자체 투명도 슬라이더 사용 — 여기서 건드리지 않음.
+        try:
+            self._save_settings()
+        except Exception:
+            pass
+
+    def _nav_user_scale(self) -> float:
+        """선비족 네비 사용자 크기 배율 (0.5~2.0). 스핀(%) 값 기준."""
+        try:
+            s = getattr(self, "nav_size_spin", None)
+            if s is not None:
+                return max(0.5, min(2.0, int(s.value()) / 100.0))
+        except Exception:
+            pass
+        return 1.0
+
+    def _on_nav_size_changed(self, v) -> None:
+        """네비 크기(슬라이더/숫자) 변경 → 네비 오버레이 즉시 + 저장."""
+        ov = self._hunt_nav_overlay
+        if ov is not None:
+            try:
+                ov.set_user_scale(max(0.5, min(2.0, int(v) / 100.0)))
+            except Exception:
+                pass
         try:
             self._save_settings()
         except Exception:
@@ -1789,6 +1815,12 @@ class MainWindow(QtWidgets.QMainWindow):
                     continue
                 try:
                     _ov.set_opacity(self._overlay_opacity_for(_k))
+                except Exception:
+                    pass
+            # 네비 사용자 크기 배율 적용 (2026-06-12).
+            if self._hunt_nav_overlay is not None:
+                try:
+                    self._hunt_nav_overlay.set_user_scale(self._nav_user_scale())
                 except Exception:
                     pass
             # msw 창 HWND 바인딩 — 드래그/자동 앵커 둘 다 이 창 client rect
