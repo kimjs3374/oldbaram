@@ -39,7 +39,8 @@ class HuntNavOverlay(_ScaledOverlay):
     def __init__(self):
         super().__init__()
         self._snap: dict = {}
-        self._base_w = 230
+        # 컴팩트 기본(2026-06-12): 화면 중앙 가림 최소화. 더 키우려면 크기조절.
+        self._base_w = 182
         self._relayout()
 
     def update_nav(self, snap: Optional[dict]) -> None:
@@ -71,10 +72,10 @@ class HuntNavOverlay(_ScaledOverlay):
     # ── 지오메트리 ───────────────────────────────────────────────────────
 
     def _grid_metrics(self):
-        # 제목 제거(2026-06-12 사용자 요청) → 그리드를 위로 끌어올림.
+        # 제목 제거(2026-06-12) + 컴팩트 — 중앙 가림 최소화.
         w = self.width()
         top = self._px(16)
-        row_h = self._px(38)
+        row_h = self._px(29)
         return w, top, row_h
 
     def _slot_center(self, slot: str):
@@ -85,9 +86,9 @@ class HuntNavOverlay(_ScaledOverlay):
     def _relayout(self) -> None:
         w = self._px(self._base_w)
         top = self._px(16)
-        row_h = self._px(38)
+        row_h = self._px(29)
         grid_h = row_h * 3
-        bottom_h = self._px(19) * 2 + self._px(10)
+        bottom_h = self._px(16) * 2 + self._px(8)
         self.setFixedSize(w, top + grid_h + bottom_h)
 
     # ── 렌더 ────────────────────────────────────────────────────────────
@@ -97,10 +98,10 @@ class HuntNavOverlay(_ScaledOverlay):
         ar, ag, ab = ACCENT_NAV
         qp.setFont(self._font(8))
         fm = qp.fontMetrics()
-        cw = fm.horizontalAdvance(label) + self._px(16)
-        ch = self._px(17)
-        x0 = self.width() - cw - self._px(9)
-        y0 = self._px(8)
+        cw = fm.horizontalAdvance(label) + self._px(14)
+        ch = self._px(14)
+        x0 = self.width() - cw - self._px(7)
+        y0 = self._px(1)
         rect = QtCore.QRectF(x0, y0, cw, ch)
         border = QtGui.QPen(QtGui.QColor(ar, ag, ab, 225), self._px(1))
         self._chip(qp, rect, QtGui.QColor(36, 31, 17),
@@ -155,7 +156,7 @@ class HuntNavOverlay(_ScaledOverlay):
                 return QtGui.QBrush(gg)
 
             # 노드 칩 (불투명 입체 — 드롭섀도+글로스, 투명도 비의존).
-            bw, bh = self._px(48), self._px(26)
+            bw, bh = self._px(38), self._px(21)
             for slot, label in layout.items():
                 cx, cy = self._slot_center(slot)
                 rect = QtCore.QRectF(cx - bw / 2, cy - bh / 2, bw, bh)
@@ -163,7 +164,7 @@ class HuntNavOverlay(_ScaledOverlay):
                 is_next = (not is_entry and next_y and label == next_y)
                 is_cur = (not is_entry and cur_y and label == cur_y)
                 in_order = (not is_entry and label in order)
-                nr = self._px(8)
+                nr = self._px(6)
                 halo = True
                 if is_next and hub_alert:
                     fill = _grad((255, 224, 116), (245, 168, 24), rect)
@@ -199,7 +200,7 @@ class HuntNavOverlay(_ScaledOverlay):
                 self._chip(qp, rect, fill, radius=nr, border=border)
                 text = "입구" if is_entry else (
                     f"▶{label}" if (is_next and hub_alert) else str(label))
-                qp.setFont(self._font(10))
+                qp.setFont(self._font(9))
                 self._text_rect(qp, rect.toRect(),
                                 int(QtCore.Qt.AlignCenter), text, txt_c,
                                 halo=halo, shadow=False)
@@ -210,8 +211,8 @@ class HuntNavOverlay(_ScaledOverlay):
                        QtGui.QColor(150, 156, 168))
 
         # 하단 2줄: 순서/상태 + 다음 굴.
-        y_txt = grid_bottom_y + self._px(15)
-        qp.setFont(self._font(9, bold=False))
+        y_txt = grid_bottom_y + self._px(13)
+        qp.setFont(self._font(8, bold=False))
         if order:
             self._text(qp, left_pad, y_txt,
                        f"순서  {'→'.join(map(str, order))}   "
@@ -221,19 +222,19 @@ class HuntNavOverlay(_ScaledOverlay):
             self._text(qp, left_pad, y_txt,
                        f"순서  미정  ({_STATE_KR.get(state, state)})",
                        QtGui.QColor(150, 156, 168))
-        y_txt += self._px(19)
+        y_txt += self._px(16)
         if next_y and hub_alert:
-            qp.setFont(self._font(11))
+            qp.setFont(self._font(10))
             self._text(qp, left_pad, y_txt, f"▶  {next_y}굴로 이동!",
                        QtGui.QColor(255, 206, 70))
         elif next_y:
-            qp.setFont(self._font(10))
+            qp.setFont(self._font(9))
             line = f"다음  {next_y}굴"
             if out_of_order and cur_y:
                 line += f"   (현재 {cur_y}굴 순서밖)"
             self._text(qp, left_pad, y_txt, line, QtGui.QColor(255, 216, 110))
         else:
-            qp.setFont(self._font(10))
+            qp.setFont(self._font(9))
             self._text(qp, left_pad, y_txt, "다음  -",
                        QtGui.QColor(150, 156, 168))
         self._draw_edit_hint(qp)
