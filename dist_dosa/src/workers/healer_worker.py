@@ -1278,6 +1278,18 @@ class HealerWorker(QtCore.QThread):
                     ctx["attacker_mp_pct"] = -1
                 # 파력무참 시전 굴 판정용 현재 힐러 맵.
                 ctx["map_name"] = getattr(_worker_self, "healer_map", "") or ""
+                # 파력무참 접근 게이트(§4): 같은맵+격수좌표 유효 시 맨해튼 dist.
+                try:
+                    _hc = getattr(_worker_self, "healer_coord", None)
+                    if (atk is not None and getattr(atk, "coord_valid", False)
+                            and _hc is not None and ctx["map_name"]
+                            and ctx["map_name"] == getattr(atk, "map_name", "")):
+                        ctx["atk_dist"] = (abs(int(_hc[0]) - int(atk.x))
+                                           + abs(int(_hc[1]) - int(atk.y)))
+                    else:
+                        ctx["atk_dist"] = 999
+                except Exception:
+                    ctx["atk_dist"] = 999
                 return ctx
     
             # 블록A/B 훅 — 자힐/자가부활 pre/post.
@@ -1874,16 +1886,20 @@ class HealerWorker(QtCore.QThread):
                         (getattr(_bf_latest, "skills", {}) or {})
                         .get("파력무참", -1)
                     )
-                    if _parlyuk_val > 0:
+                    # §4 2026-06-13: 파력무참 접근 굴(지정+매칭)이면 버프 무관
+                    # tol=1 로 격수에 접근(dist≤1) 후 시전. 미지정 굴은 기존대로.
+                    _zone = self._parlyuk_zone_ok()
+                    if _parlyuk_val > 0 or _zone:
                         if not self._parlyuk_buff_active:
                             self._parlyuk_buff_active = True
                             self._coord_tol_saved = int(self.coord_tol)
                             self.coord_tol = 1
                             self.log.info(
-                                f"[PARLYUK-TOL] 버프 감지({_parlyuk_val}s) "
+                                f"[PARLYUK-TOL] "
+                                f"{'버프 감지' if _parlyuk_val > 0 else '접근 굴'} "
                                 f"coord_tol {self._coord_tol_saved}→1 강제"
                             )
-                    elif _parlyuk_val == 0:
+                    elif _parlyuk_val == 0 and not _zone:
                         if self._parlyuk_buff_active:
                             _restore = (
                                 int(self._coord_tol_saved)
@@ -1960,43 +1976,22 @@ class HealerWorker(QtCore.QThread):
                 # 자힐 종료 시 저장 타겟 해제 (다음 자힐 진입에 새로 저장).
                 elif not _locked_now and self._seq_rclick_target is not None:
                     self._seq_rclick_target = None
-                # ── 격수 빨탭 재고정 시퀀스 트리거 (2026-06-12) ──────────────
-                # 격수 F1(atk.reanchor_seq 증가) → 조건 무시 즉시. 자동 → 같은맵 +
-                # 힐러 HP 100% 3초+ + 빨탭검출 + 60초 간격. 시퀀스는 별도 스레드.
+                # ── 격수 빨탭 재고정 시퀀스 트리거 (격수 F1 핫키 전용) ────────
+                # 2026-06-13(사용자 지시): 자동감지(HP100%+빨탭+60s간격) 제거 →
+                # 격수 F1 수동 트리거만 유지. reanchor_seq 증가 에지로 1회 발동.
                 _rseq = int(getattr(atk, "reanchor_seq", 0) or 0)
                 _manual_req = (_rseq != self._last_reanchor_seq)
                 self._last_reanchor_seq = _rseq  # 항상 소비(중복발동 방지).
-                try:
-                    _hp_pct_now = int(getattr(self._hpmp.latest(), "hp", -1))
-                except Exception:
-                    _hp_pct_now = -1
-                if _hp_pct_now >= 100:
-                    if self._hp100_since <= 0.0:
-                        self._hp100_since = now_sec
-                else:
-                    self._hp100_since = 0.0
-                if (not self.follow_only and not self._reanchor_active
+                if (_manual_req and not self.follow_only
+                        and not self._reanchor_active
                         and not fol._tab_confirm_active
                         and self._pending_tab_lock_until <= now_sec):
-                    _same_map = (bool(self.healer_map) and bool(atk.map_name)
-                                 and self.healer_map == atk.map_name)
-                    _hp_ok = (self._hp100_since > 0.0 and now_sec
-                              - self._hp100_since >= self._reanchor_hp_hold_s)
-                    _interval_ok = (now_sec - self._reanchor_last_ts
-                                    >= self._reanchor_interval_s)
-                    _auto = (_same_map and _hp_ok and bool(self._cur_red_raw)
-                             and _interval_ok)
-                    if _manual_req or _auto:
-                        self._reanchor_last_ts = now_sec
-                        self._hp100_since = 0.0
-                        self.log.info(
-                            f"[REANCHOR] 트리거 "
-                            f"({'F1수동' if _manual_req else '자동'}) "
-                            f"h_map={self.healer_map!r} a_map={atk.map_name!r} "
-                            f"hp={_hp_pct_now} red={self._cur_red_raw} "
-                            f"same_map={_same_map}"
-                        )
-                        self._start_reanchor_sequence()
+                    self._reanchor_last_ts = now_sec
+                    self.log.info(
+                        f"[REANCHOR] 트리거 (F1수동) "
+                        f"h_map={self.healer_map!r} a_map={atk.map_name!r}"
+                    )
+                    self._start_reanchor_sequence()
                 # ── 쩔캐 지폭지술 트리거 (2026-06-12): 격수 F2 수동 신호 전용 ──
                 # 조건(굴/MP) 불충족 시 무시+로그 → 격수가 재신호로 재시도.
                 _jseq = int(getattr(atk, "jipok_seq", 0) or 0)
@@ -3075,6 +3070,22 @@ class HealerWorker(QtCore.QThread):
                 s.add(int(tok))
         self._parlyuk_maps = s
         self.log.info(f"[PARLYUK-MAPS] 시전 굴 설정 → {sorted(s) or '전체'}")
+
+    def _parlyuk_zone_ok(self) -> bool:
+        """파력무참 접근 굴인지 (§4 2026-06-13). 굴 지정 + 현재 힐러맵 (N) 매칭.
+
+        미지정(빈 집합)이면 False → 접근 강제 안 함(평상시 tol 보존). 지정 시
+        그 굴에서만 coord_tol=1 접근(시전 대기 중 격수와 dist≤1 까지 좁힘).
+        """
+        if not self._parlyuk_maps:
+            return False
+        m = re.search(r"\((\d+)\)\s*$", self.healer_map or "")
+        if not m:
+            return False
+        try:
+            return int(m.group(1)) in self._parlyuk_maps
+        except Exception:
+            return False
 
     def _decide_move(self, atk, fol, map_neq: bool) -> tuple:
         """B안 래퍼: 원 decision 결과에 STUCK 감지/언스턱 오버라이드 적용."""

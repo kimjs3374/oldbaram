@@ -46,6 +46,25 @@ def _parlyuk_map_ok(ctx: dict, maps_getter) -> bool:
         return False
 
 
+def _parlyuk_approach_ok(ctx: dict, maps_getter) -> bool:
+    """파력무참 접근 게이트 (§4 2026-06-13 사용자 요청).
+
+    굴 지정(maps_getter 비어있지 않음) 시: 격수와 맨해튼 dist ≤ 1 이어야 시전.
+    (시전 대기 중엔 healer_worker 가 coord_tol=1 로 격수에 접근시킴 → dist 좁힘.)
+    미지정(전체 허용) 시: 게이트 없음(기존 동작 유지, 평상시 tol 보존).
+    """
+    try:
+        maps = maps_getter() if callable(maps_getter) else maps_getter
+    except Exception:
+        maps = None
+    if not maps:
+        return True  # 미지정 = 접근 게이트 없음
+    try:
+        return int(ctx.get("atk_dist", 999)) <= 1
+    except Exception:
+        return True
+
+
 # NumPad0~9 VK 코드 (0x60 ~ 0x69). blueprints 기본 VK 지정용.
 _VK_NUMPAD0 = 0x60
 _VK_NUMPAD1 = 0x61
@@ -325,7 +344,8 @@ def default_skills(parlyuk_offset_sec: float = 0.0,
     skills.append(SkillSpec(
         "파력무참", int(vk_map.get("파력무참", _VK_NUMPAD8)),
         5.0, lambda c: (not _buff_present(c, "파력무참")
-                        and _parlyuk_map_ok(c, parlyuk_maps_getter)),
+                        and _parlyuk_map_ok(c, parlyuk_maps_getter)
+                        and _parlyuk_approach_ok(c, parlyuk_maps_getter)),
         offset_sec=parlyuk_offset_sec,
         verify_kind="buff",
         verify_target="파력무참",

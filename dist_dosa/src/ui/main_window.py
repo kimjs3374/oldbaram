@@ -1205,6 +1205,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             lbl = QtWidgets.QLabel(_init_nick if _init_nick else f"힐러{idx + 1}")
             lbl.setMinimumWidth(55)
+            lbl.setWordWrap(True)  # 2026-06-13: 긴 닉/역할/종류 줄바꿈(짤림 방지)
             lbl.setStyleSheet("font-weight:bold;")
             lbl_peer = QtWidgets.QLabel(peer)
             lbl_peer.setStyleSheet("color:#98a2b3;font-size:9pt;")
@@ -1235,6 +1236,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 _lb.setStyleSheet(
                     "color:#cbd2da;font-size:9pt;padding-left:18px;"
                 )
+                _lb.setWordWrap(True)  # 역할/종류/차수 등 짤림 방지 (줄바꿈)
                 box_lay.addWidget(_lb)
             self.attacker_panel_layout.addWidget(box)
             self._healer_rows.append({
@@ -1742,7 +1744,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._alert_overlay.drop_countdown(key)
             return
         if cd == 1:
-            msg = f"{nick} {skill_name} 곧 시전"
+            msg = f"{nick} {skill_name} 준비됨"
         else:
             msg = f"{nick} {skill_name} {cd - 1}초 전"
         # cd=1은 1.2s (다음 update가 없을 수 있음), cd>=2는 1.5s.
