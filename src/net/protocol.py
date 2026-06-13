@@ -124,6 +124,8 @@ class CooldownReport:
     # 2026-06-12: 쩔캐(현인) 지폭지술 남은 쿨 (시전시각 타이머 기반).
     # -1=미해당(현인 아님/쩔캐 아님), 0=준비됨, >0=남은 초.
     cd_jipok: int = -1
+    # 2026-06-13(§8): 쩔캐 지폭지술 시전 굴 "5,6" (격수 다음굴 알림용).
+    jipok_maps: str = ""
     ts_ms: int = 0
     armed: bool = False
     nickname: str = ""

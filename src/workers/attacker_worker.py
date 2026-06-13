@@ -366,6 +366,8 @@ class AttackerWorker(QtCore.QThread):
                             "cd_baekho": rep.cd_baekho,
                             # 2026-06-12: 쩔캐(현인) 지폭지술 쿨.
                             "cd_jipok": int(getattr(rep, "cd_jipok", -1)),
+                            # 2026-06-13(§8): 지폭 시전 굴 "5,6" (다음굴 알림).
+                            "jipok_maps": str(getattr(rep, "jipok_maps", "")),
                             "ts_ms": rep.ts_ms,
                             "armed": bool(getattr(rep, "armed", False)),
                             "nickname": str(getattr(rep, "nickname", "") or ""),

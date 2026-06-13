@@ -2835,6 +2835,9 @@ class HealerWorker(QtCore.QThread):
                                     cd_parlyuk=int(p_rem),
                                     cd_baekho=int(b_rem),
                                     cd_jipok=self._jipok_cd_remaining(),
+                                    jipok_maps=",".join(
+                                        str(n) for n in sorted(self._jipok_maps)
+                                    ),
                                     ts_ms=now_ms(),
                                     armed=bool(self.armed),
                                     nickname=str(cd_read.nickname or ""),

@@ -3466,6 +3466,52 @@ class MainWindow(QtWidgets.QMainWindow):
                         )
         except Exception:
             pass
+        # 3) §8: 지폭 시전굴 직전굴 알림.
+        try:
+            self._tick_jipok_next_alert(snap)
+        except Exception:
+            pass
+
+    def _tick_jipok_next_alert(self, snap: dict) -> None:
+        """§8 2026-06-13: 지폭 시전굴 직전굴에서 격수 알림.
+
+        다음 굴(next_y)이 쩔캐 지폭 시전굴이고 그 쩔캐 지폭쿨<20s(or 준비)면
+        "{시전굴}굴 {닉} 지폭지술 시전가능" 을 지속 표시. 시전굴 진입(cur_y)
+        후 3초 표시하고 해제.
+        """
+        if self._alert_overlay is None or not self._alert_overlay.isVisible():
+            return
+        import time as _t
+        now = _t.time()
+        next_y = int(snap.get("next_y", 0) or 0)
+        cur_y = int(snap.get("cur_y", 0) or 0)
+        if not hasattr(self, "_jipok_alert_enter"):
+            self._jipok_alert_enter = {}
+        for idx, d in list(self._healer_cooldowns.items()):
+            cj = int(d.get("cd_jipok", -1))
+            jm = str(d.get("jipok_maps", "") or "")
+            key = f"jipoknext_{idx}"
+            maps = {int(t) for t in jm.split(",") if t.isdigit()}
+            if cj < 0 or not maps:
+                self._alert_overlay.drop_countdown(key)
+                self._jipok_alert_enter.pop(idx, None)
+                continue
+            nick = str(d.get("nickname", "") or "").strip() or f"힐러{idx + 1}"
+            if cur_y in maps:
+                # 시전굴 진입 → 3초만 더 표시 후 해제.
+                ent = self._jipok_alert_enter.setdefault(idx, now)
+                if now - ent <= 3.0:
+                    self._alert_overlay.push_countdown(
+                        key, f"{cur_y}굴 {nick} 지폭지술 시전가능", 1.5)
+                else:
+                    self._alert_overlay.drop_countdown(key)
+            elif next_y in maps and 0 <= cj < 20:
+                self._jipok_alert_enter.pop(idx, None)
+                self._alert_overlay.push_countdown(
+                    key, f"{next_y}굴 {nick} 지폭지술 시전가능", 1.5)
+            else:
+                self._jipok_alert_enter.pop(idx, None)
+                self._alert_overlay.drop_countdown(key)
 
     @staticmethod
     def _format_hunt_report_line(rec: dict) -> str:
