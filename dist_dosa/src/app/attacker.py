@@ -18,6 +18,7 @@ from ..vision.cooldown_ocr import CooldownOcr
 from ..net.udp_sender import UdpSender
 from ..net.protocol import State, now_ms
 from ..input.keys import find_windows_by_process
+from ..utils.win_helpers import detect_arrow_dir
 from .hunt_analytics import HuntAnalytics
 
 try:
@@ -46,6 +47,7 @@ class Attacker:
             else:
                 self.log(f"[attacker][!] {cfg.input.target_window} 창 없음 → "
                          f"monitor_index={cfg.capture.monitor_index} fallback")
+        self._hwnd = hwnd  # 격수 방향키 foreground 게이트용 (§6.5 막힘률)
         # 2026-04-22: AsyncGrabber — 캡처 스레드 분리로 mss 지연(BitBlt) 이
         # 메인 루프 fps 영향 없게. 힐러와 동일 패턴 (healer_worker:620).
         self.grab = AsyncGrabber(cfg.capture.monitor_index, hwnd=hwnd,
@@ -529,6 +531,7 @@ class Attacker:
                 coord_valid=self._last.coord_valid,
                 x=self._last.x, y=self._last.y,
                 last_dir=self._last.last_dir,
+                atk_key=detect_arrow_dir(self._hwnd),  # 격수 실제 방향키 (§6.5)
                 map_seq=self._map_seq,
                 map_change_pending=pending_now,
                 reanchor_seq=self._reanchor_seq,

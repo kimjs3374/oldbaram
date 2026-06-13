@@ -41,6 +41,9 @@ def _new_slot():
     return {
         "cells": defaultdict(lambda: {"walk": 0, "tab": 0}),
         "blocked": defaultdict(lambda: defaultdict(int)),
+        # 격수 막힘률(§6.5): "x,y" → {DIR: {try, block}}. 막힘률=block/try.
+        "attempts": defaultdict(
+            lambda: defaultdict(lambda: {"try": 0, "block": 0})),
         "dirty": False,
     }
 
@@ -80,6 +83,12 @@ class MapGrid:
                 for k, bd in d.get("blocked", {}).items():
                     for dd, cnt in bd.items():
                         s["blocked"][k][dd] = int(cnt)
+                for k, dd in d.get("attempts", {}).items():
+                    for di, tb in dd.items():
+                        s["attempts"][k][di] = {
+                            "try": int(tb.get("try", 0)),
+                            "block": int(tb.get("block", 0)),
+                        }
             except Exception:
                 pass  # 손상 파일이면 새로 시작 (수집은 멈추면 안 됨)
         return s
@@ -104,6 +113,24 @@ class MapGrid:
         s["blocked"][f"{x},{y}"][d] += 1
         s["dirty"] = True
 
+    def add_attempt(self, name: str, x: int, y: int, d: str,
+                    passed: bool) -> None:
+        """격수가 (x,y)에서 d 방향 시도 결과 누적 (§6.5 막힘률).
+
+        passed=True: 좌표가 d로 변함(통행 성공). False: 안 변함(몹 or 벽).
+        막힘률=block/try → 항상 막힘=진짜 벽, 가끔=몹/일시. 누적 통계로 구분.
+        """
+        if d not in ("L", "R", "U", "D"):
+            return
+        _, s = self._slot(name)
+        if s is None or not self._valid(x, y):
+            return
+        a = s["attempts"][f"{x},{y}"][d]
+        a["try"] += 1
+        if not passed:
+            a["block"] += 1
+        s["dirty"] = True
+
     def import_bundle(self, bundle: dict) -> None:
         """클라우드/타 PC 묶음({맵명:{cells,blocked,...}})을 카운트 합산.
 
@@ -124,6 +151,12 @@ class MapGrid:
                 for dd, cnt in bd.items():
                     if dd in ("L", "R", "U", "D"):
                         s["blocked"][k][dd] += int(cnt)
+            for k, dd in md.get("attempts", {}).items():
+                for di, tb in dd.items():
+                    if di in ("L", "R", "U", "D"):
+                        cur = s["attempts"][k][di]
+                        cur["try"] += int(tb.get("try", 0))
+                        cur["block"] += int(tb.get("block", 0))
             s["dirty"] = True
 
     # --- 영속화 ---
@@ -145,6 +178,8 @@ class MapGrid:
                 },
                 "cells": {k: dict(v) for k, v in cells.items()},
                 "blocked": {k: dict(v) for k, v in s["blocked"].items()},
+                "attempts": {k: {di: dict(tb) for di, tb in dd.items()}
+                             for k, dd in s["attempts"].items()},
             }
             tmp = self.root / f"{_safe(name)}.json.tmp"
             dst = self.root / f"{_safe(name)}.json"

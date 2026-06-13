@@ -18,8 +18,9 @@ import json
 import pathlib
 import sys
 
+import os
 ROOT = pathlib.Path(__file__).resolve().parent
-MAPS = ROOT / "maps"
+MAPS = ROOT / os.environ.get("OB_MAPS_DIR", "maps")  # 실데이터=maps_cloud
 
 # 방향 → 좌표 델타 (L=x감소 실측 확정)
 DELTA = {"L": (-1, 0), "R": (1, 0), "U": (0, -1), "D": (0, 1)}

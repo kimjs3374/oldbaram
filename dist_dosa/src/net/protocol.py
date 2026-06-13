@@ -31,6 +31,7 @@ class State:
     red_cx: int = 0
     red_cy: int = 0
     last_dir: str = "-"
+    atk_key: str = "-"   # 격수 실제 방향키(↑↓←→/-). 막힘률 누적용 (§6.5).
     hp: int = -1
     mp: int = -1
     map_seq: int = 0

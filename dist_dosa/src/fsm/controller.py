@@ -178,6 +178,10 @@ class Follower:
                              / "maps")
         self._grid_flush_interval: float = 30.0
         self._grid_last_flush: float = time.time()
+        # 격수 막힘률(§6.5): (방향, 시작x, 시작y, 시작ts). 격수가 키 누른 뒤
+        # 그 축 좌표가 변하면 통행 성공, 0.5s 안 변하면 막힘(몹 or 벽) 누적.
+        self._atk_try = None
+        self._atk_block_sec: float = 0.5
         # EXIT-FALLBACK (2026-06-10): exit_dir 오판/출구좌표 UDP누락 안전망.
         # map_neq 지속 + 힐러 좌표 8초 정체(정상 전환 실측 최대 5.3s + 여유)
         # → exit_dir 교체 (반대→직교 순환). healer-120 (7) 14초 정체 사고 대응.
@@ -310,6 +314,34 @@ class Follower:
         mid_x = xs[len(xs) // 2]
         mid_y = ys[len(ys) // 2]
         return (mid_x, mid_y), str(e.get("dir", "-"))
+
+    def _note_atk_attempt(self, s, now: float) -> None:
+        """격수 방향키 + 좌표 변화로 통행/막힘 누적 (§6.5 막힘률).
+
+        격수(인간)가 d 방향 키를 누른 뒤:
+          - 그 축 좌표가 변함 → 통행 성공(add_attempt passed=True).
+          - 0.5s 안 변함 → 막힘(passed=False). 같은 자리 재무장 →
+            계속 막히면 0.5s마다 누적(벽=막힘률 1.0, 몹=가끔이라 낮음).
+        축 변화로만 판정(부호 무관) → U/D 좌표축 부호 불확실 회피.
+        """
+        key = getattr(s, "atk_key", "-")
+        if (not s.map_name or key not in ("L", "R", "U", "D")
+                or not s.coord_valid):
+            self._atk_try = None
+            return
+        cx, cy = s.x, s.y
+        tr = self._atk_try
+        if tr is None or tr[0] != key:
+            self._atk_try = (key, cx, cy, now)
+            return
+        _, sx, sy, ts = tr
+        moved = (cx != sx) if key in ("L", "R") else (cy != sy)
+        if moved:
+            self._grid.add_attempt(s.map_name, sx, sy, key, True)
+            self._atk_try = (key, cx, cy, now)        # 새 위치서 재시작
+        elif now - ts >= self._atk_block_sec:
+            self._grid.add_attempt(s.map_name, sx, sy, key, False)
+            self._atk_try = (key, sx, sy, now)        # 같은 자리 재무장
 
     def note_blocked(self, map_name: str, x: int, y: int, d: str) -> None:
         """STUCK 확정 벽(좌표+방향)을 맵 grid 에 영구 누적.
@@ -485,6 +517,11 @@ class Follower:
                 pass
         if s is None:
             s = State()  # 빈 상태로라도 계속 평가 (disconnected 판정)
+        # 격수 막힘률 누적 (§6.5). 실패해도 본 로직 막지 않게 방어.
+        try:
+            self._note_atk_attempt(s, now)
+        except Exception:
+            pass
 
         if getattr(s, "seq", 0) > 0 or getattr(s, "coord_valid", False):
             self._last_udp_time = now
