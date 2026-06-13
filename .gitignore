@@ -96,3 +96,7 @@ Thumbs.db
 build/
 dist/
 *.spec
+
+# ==== 맵 데이터화 (클라우드 동기화 대상) ====
+maps/
+dist_dosa/maps/
