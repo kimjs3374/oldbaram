@@ -1155,6 +1155,7 @@ class HealerWorker(QtCore.QThread):
                            dead_reckon_sec=cfg.fsm.dead_reckon_sec)
             # Follower 내부 이벤트(TRAIL-PUSH, CTRL-MAPCHG, PROGRESS)를 같은 로거로.
             fol.log = self.log
+            self.fol = fol  # 정지 시 맵 grid flush + 업로드 위해 참조 보관
             # 2026-04-22 원상복구: _snap_forward_threshold 기본값(10) 사용.
             keys = KeyController(window_name=cfg.input.target_window,
                                  method=cfg.input.method,

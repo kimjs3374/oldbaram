@@ -4064,6 +4064,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self._set_run_status(False)
+        # 사냥 정지 = 한 세션 끝 → 맵 grid flush 후 클라우드 자동 업로드.
+        # (사용자 지시 2026-06-13: 정지 누르면 maps 자동 업로드)
+        try:
+            _fol = getattr(self.worker, "fol", None) if self.worker else None
+            if _fol is not None and getattr(_fol, "_grid", None) is not None:
+                _fol._grid.flush()
+        except Exception:
+            pass
+        try:
+            from . import cloud_panel
+            key = cloud_panel.auto_upload_maps(self)
+            if key and hasattr(self, "_cloud_lbl"):
+                self._cloud_lbl.setText(f"맵 업로드: {key}")
+        except Exception:
+            pass
         try:
             if self._analytics_timer.isActive():
                 self._analytics_timer.stop()

@@ -18,6 +18,7 @@ from . import settings_io
 from ..net import cloud_sync, updater
 
 _LOG_DIR = pathlib.Path(__file__).resolve().parents[2] / "logs"
+_MAPS_DIR = pathlib.Path(__file__).resolve().parents[2] / "maps"
 
 
 def make_sid(role: str, idx: int) -> str:
@@ -52,6 +53,47 @@ def auto_upload_log(mw) -> None:
         _upload_current_log(mw)
     except Exception:
         pass
+
+
+def _upload_maps(mw):
+    """수집된 maps/ 전체를 maps/{role}-{ip끝자리}.json 묶음 1파일로 업로드.
+
+    storage key 는 ASCII 만 가능 → 한글 맵명은 묶음 JSON **내용**에만 둔다.
+    D 작업기는 _cloud_maps.py 로 pull+merge 해서 분석. 비어 있으면 skip.
+    """
+    import tempfile
+    import os
+    from ..utils.logger_setup import local_ip_suffix
+    if not _MAPS_DIR.is_dir():
+        return None
+    bundle = {}
+    for fp in _MAPS_DIR.glob("*.json"):
+        try:
+            bundle[fp.stem] = json.loads(fp.read_text(encoding="utf-8"))
+        except Exception:
+            pass  # 손상 파일 건너뛰고 나머지 업로드
+    if not bundle:
+        return None
+    sid = f"{mw.role}-{local_ip_suffix()}"
+    tmp_dir = pathlib.Path(tempfile.mkdtemp())
+    tmp = tmp_dir / f"{sid}.json"   # 파일명이 곧 storage key basename
+    tmp.write_text(json.dumps(bundle, ensure_ascii=False), encoding="utf-8")
+    try:
+        return cloud_sync.CloudClient().upload_log("maps", str(tmp))
+    finally:
+        try:
+            tmp.unlink()
+            os.rmdir(tmp_dir)
+        except Exception:
+            pass
+
+
+def auto_upload_maps(mw) -> None:
+    """정지 버튼 등에서 조용히 호출 (실패 무시). 반환 key 또는 None."""
+    try:
+        return _upload_maps(mw)
+    except Exception:
+        return None
 
 
 def attach(mw, root_layout) -> None:

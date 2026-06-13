@@ -104,6 +104,28 @@ class MapGrid:
         s["blocked"][f"{x},{y}"][d] += 1
         s["dirty"] = True
 
+    def import_bundle(self, bundle: dict) -> None:
+        """클라우드/타 PC 묶음({맵명:{cells,blocked,...}})을 카운트 합산.
+
+        교환·결합법칙이 성립(누적 카운트)이라 여러 PC 묶음을 순서 무관 병합 가능.
+        D 작업기에서 빈 grid 에 여러 sid 묶음을 import → flush 하면 통합본.
+        """
+        if not isinstance(bundle, dict):
+            return
+        for name, md in bundle.items():
+            _, s = self._slot(name)
+            if s is None or not isinstance(md, dict):
+                continue
+            for k, c in md.get("cells", {}).items():
+                cur = s["cells"][k]
+                cur["walk"] += int(c.get("walk", 0))
+                cur["tab"] += int(c.get("tab", 0))
+            for k, bd in md.get("blocked", {}).items():
+                for dd, cnt in bd.items():
+                    if dd in ("L", "R", "U", "D"):
+                        s["blocked"][k][dd] += int(cnt)
+            s["dirty"] = True
+
     # --- 영속화 ---
     def flush(self) -> int:
         """dirty 맵만 디스크에 저장. 저장한 맵 수 반환. (메모리가 누적본)."""
