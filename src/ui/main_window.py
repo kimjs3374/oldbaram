@@ -327,20 +327,27 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 역할 라디오. 쩔캐(2026-06-12)는 내부 role="healer" + jjeol 플래그
         # (HealerWorker/네트워크 경로 전부 재사용, GUI 레이아웃만 분리).
-        role_row = QtWidgets.QHBoxLayout()
+        # 2026-06-13: 닉/역할 2줄 분리 (한 줄에 다 넣으면 좁아 짤림).
+        role_row = QtWidgets.QVBoxLayout()
+        role_row.setSpacing(3)
+        # 1줄: 닉네임 입력 + 필드.
+        nick_row = QtWidgets.QHBoxLayout()
         # 닉네임 입력 (2026-06-13 항목8: 시작 다이얼로그 제거 → 메인창 필드).
         #   비우면 필요 시 OCR(닉 영역)에서 자동 추출 (항목9).
-        role_row.addWidget(QtWidgets.QLabel("닉네임:"))
+        nick_row.addWidget(QtWidgets.QLabel("닉네임:"))
         self.nick_edit = QtWidgets.QLineEdit()
         self.nick_edit.setPlaceholderText("비우면 OCR 자동")
-        self.nick_edit.setFixedWidth(96)
+        self.nick_edit.setFixedWidth(160)
         self.nick_edit.setToolTip(
             "캐릭터 닉네임 (로그 파일명 + 클라우드 설정 식별).\n"
             "비워두면 필요할 때 닉 영역 OCR 로 자동 추출."
         )
         self.nick_edit.textChanged.connect(self._on_nick_changed)
-        role_row.addWidget(self.nick_edit)
-        role_row.addSpacing(8)
+        nick_row.addWidget(self.nick_edit)
+        nick_row.addStretch(1)
+        role_row.addLayout(nick_row)
+        # 2줄: 역할 + 격수종류(도적/전사) + 차수(2/3/4차).
+        role_row2 = QtWidgets.QHBoxLayout()
         self.rb_healer = QtWidgets.QRadioButton("도사")
         self.rb_attacker = QtWidgets.QRadioButton("격수")
         self.rb_jjeol = QtWidgets.QRadioButton("쩔캐")
@@ -351,10 +358,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rb_healer.setChecked(True)
         self.rb_healer.toggled.connect(self._on_role_change)
         self.rb_jjeol.toggled.connect(self._on_role_change)
-        role_row.addWidget(QtWidgets.QLabel("역할:"))
-        role_row.addWidget(self.rb_healer)
-        role_row.addWidget(self.rb_attacker)
-        role_row.addWidget(self.rb_jjeol)
+        role_row2.addWidget(QtWidgets.QLabel("역할:"))
+        role_row2.addWidget(self.rb_healer)
+        role_row2.addWidget(self.rb_attacker)
+        role_row2.addWidget(self.rb_jjeol)
         # 격수 서브클래스 (도적/전사) — 격수 라디오 옆에.
         self.subclass_container = QtWidgets.QWidget()
         sc_lay = QtWidgets.QHBoxLayout(self.subclass_container)
@@ -385,8 +392,9 @@ class MainWindow(QtWidgets.QMainWindow):
         sc_lay.addWidget(self.rb_rank2)
         sc_lay.addWidget(self.rb_rank3)
         sc_lay.addWidget(self.rb_rank4)
-        role_row.addWidget(self.subclass_container)
-        role_row.addStretch(1)
+        role_row2.addWidget(self.subclass_container)
+        role_row2.addStretch(1)
+        role_row.addLayout(role_row2)
         root.addLayout(role_row)
         self.subclass_container.setVisible(False)
         self.attacker_subclass = "thief"
