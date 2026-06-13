@@ -342,6 +342,8 @@ class HealerWorker(QtCore.QThread):
         # 스킬 내부 datetime 타이머 (OCR은 오차검증용).
         self._timer_parlyuk = SkillCdTimer("parlyuk", self.log)
         self._timer_baekho = SkillCdTimer("baekho", self.log)
+        # 지폭지술 쿨 — 2026-06-13 항목7: 로컬 시전타이머 → OCR anchor 기반.
+        self._timer_jipok = SkillCdTimer("jipok", self.log)
         # 경험치 OCR → 시간당 예상 경험치.
         try:
             from ..vision.xp_ocr import XpOcr
@@ -438,6 +440,13 @@ class HealerWorker(QtCore.QThread):
             self.log.info("[NICK] region 해제")
         except Exception:
             pass
+
+    def ocr_nick(self) -> str:
+        """마지막 OCR 닉네임 (GUI 닉 미입력 시 폴백용 — 항목9)."""
+        try:
+            return self._cooldown_ocr.nick() or ""
+        except Exception:
+            return ""
 
     def set_buff_region(self, x: int, y: int, w: int, h: int) -> None:
         """파력무참 버프 지속시간 OCR 영역 지정."""
@@ -807,12 +816,21 @@ class HealerWorker(QtCore.QThread):
     def _jipok_cd_remaining(self) -> int:
         """지폭지술 남은 쿨 (격수 오버레이 표시용).
 
-        -1=미해당(쩔캐 현인 아님), 0=준비됨(미시전 포함), >0=남은 초.
-        시전 시각 기반 로컬 타이머 — OCR 없음.
+        -1=미해당(쩔캐 현인 아님), 0=준비됨, >0=남은 초.
+        2026-06-13 항목7: **OCR anchor 타이머 우선**(쿨 영역 OCR '지폭지술 N초').
+        OCR 미앵커(쿨 영역 미지정 등) 시에만 시전시각 로컬 타이머로 폴백.
         """
         if not (getattr(self, "jjeol_mode", False)
                 and getattr(self, "jjeol_hyeonin", False)):
             return -1
+        # 1) OCR anchor 타이머 (있으면 우선).
+        try:
+            ocr_rem = int(self._timer_jipok.remaining())
+        except Exception:
+            ocr_rem = -1
+        if ocr_rem >= 0:
+            return ocr_rem
+        # 2) 폴백: 시전 시각 기반 로컬 타이머 (OCR 미관측 대비).
         ts = float(getattr(self, "_jipok_last_cast_ts", 0.0) or 0.0)
         if ts <= 0.0:
             return 0
@@ -2694,7 +2712,11 @@ class HealerWorker(QtCore.QThread):
                                   int(_mon.get("top", 0)))
                         # 메인 루프는 참조만 전달 → 백그라운드 스레드가 copy().
                         # 따라가기 경량: cooldown OCR predict 정지 (submit skip).
-                        if not self.follow_light:
+                        # 단 쩔캐(현인)는 지폭지술 쿨 OCR(항목7) 위해 유지.
+                        _hyeonin = bool(
+                            getattr(self, "jjeol_mode", False)
+                            and getattr(self, "jjeol_hyeonin", False))
+                        if (not self.follow_light) or _hyeonin:
                             self._cooldown_ocr.submit_frame(frame, origin)
                         cd_read = self._cooldown_ocr.latest()
                         self._last_cooldown = cd_read
@@ -2702,6 +2724,14 @@ class HealerWorker(QtCore.QThread):
                             # 내부 타이머 anchor/검증.
                             self._timer_parlyuk.on_ocr(int(cd_read.cd_parlyuk))
                             self._timer_baekho.on_ocr(int(cd_read.cd_baekho))
+                        if _hyeonin:
+                            # 지폭지술 쿨 OCR anchor (항목7). HUD '지폭지술 N초'.
+                            try:
+                                _jcd = int((getattr(cd_read, "skills", {})
+                                            or {}).get("지폭지술", -1))
+                            except Exception:
+                                _jcd = -1
+                            self._timer_jipok.on_ocr(_jcd)
                         # XP OCR 동일 frame 제출 — 경험치는 따라가기에도 유지.
                         if self._xp_ocr is not None and self._xp_ocr.ready():
                             self._xp_ocr.submit_frame(frame, origin)

@@ -42,6 +42,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cfg = cfg
         self.worker = None           # HealerWorker or AttackerWorker
         self.role = "healer"         # "healer" | "attacker"
+        self._session_nick = ""      # 사용자 입력 닉 (비면 OCR 폴백 — 항목8/9)
+        self._region_profile_res = None   # 적용된 해상도 프로파일 키 (항목10~12)
         self.setWindowTitle("옛바 컨트롤")
         # 팝업 다이얼로그들 (메인에서 버튼으로 오픈).
         self.skill_dlg = SkillDialog(self)
@@ -133,6 +135,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # + cfg.cooldown의 cd/nick)을 델타만큼 이동해 게임 내 좌표와 맞춤.
         # 첫 tick은 baseline 기록만, 이후 변동 감지 시에만 shift.
         self._msw_last_client_origin: Optional[Tuple[int, int]] = None
+        self._msw_last_size: Optional[Tuple[int, int]] = None  # 해상도 변경 감지(항목11)
         self._msw_tracker_timer = QtCore.QTimer(self)
         self._msw_tracker_timer.setInterval(500)
         self._msw_tracker_timer.timeout.connect(self._tick_msw_tracker)
@@ -150,6 +153,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # GUI 창을 msw.exe 오른쪽에 딱 붙여서 배치 (프레임/제목표시줄 보정).
         # show() 이후 프레임 마진이 WM 으로부터 확정된 뒤 1회만 실행.
         QtCore.QTimer.singleShot(80, self._snap_to_msw_right)
+        # 해상도별 OCR 영역 프로파일 자동 적용 (항목10) — msw 탐지 + 클라우드
+        # pull 후. 설정 복원/스냅보다 뒤(600ms)에 실행해 최종 좌표가 되게.
+        QtCore.QTimer.singleShot(600, self._auto_apply_region_profile)
         # F11/F12 전역 단축키 (블록 A/B) — msw.exe 포그라운드에서도 동작.
         # hotkey 스레드 → Qt signal 로 브리지 (UI 스레드에서 실행해야 안전).
         self._hotkey_block_a_signal = getattr(
@@ -322,6 +328,19 @@ class MainWindow(QtWidgets.QMainWindow):
         # 역할 라디오. 쩔캐(2026-06-12)는 내부 role="healer" + jjeol 플래그
         # (HealerWorker/네트워크 경로 전부 재사용, GUI 레이아웃만 분리).
         role_row = QtWidgets.QHBoxLayout()
+        # 닉네임 입력 (2026-06-13 항목8: 시작 다이얼로그 제거 → 메인창 필드).
+        #   비우면 필요 시 OCR(닉 영역)에서 자동 추출 (항목9).
+        role_row.addWidget(QtWidgets.QLabel("닉네임:"))
+        self.nick_edit = QtWidgets.QLineEdit()
+        self.nick_edit.setPlaceholderText("비우면 OCR 자동")
+        self.nick_edit.setFixedWidth(96)
+        self.nick_edit.setToolTip(
+            "캐릭터 닉네임 (로그 파일명 + 클라우드 설정 식별).\n"
+            "비워두면 필요할 때 닉 영역 OCR 로 자동 추출."
+        )
+        self.nick_edit.textChanged.connect(self._on_nick_changed)
+        role_row.addWidget(self.nick_edit)
+        role_row.addSpacing(8)
         self.rb_healer = QtWidgets.QRadioButton("도사")
         self.rb_attacker = QtWidgets.QRadioButton("격수")
         self.rb_jjeol = QtWidgets.QRadioButton("쩔캐")
@@ -397,12 +416,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_pause.setToolTip("armed 토글. ARM 체크와 동일 플래그.")
         self.btn_pause.clicked.connect(self._on_pause_toggle)
         self.btn_pause.setMinimumWidth(58)
-        self.chk_follow_only = QtWidgets.QCheckBox("따라가기")
-        self.chk_follow_only.setToolTip(
-            "스킬(주력힐·파력무참) OFF, 빨탭 무시, TAB-CONFIRM OFF. "
-            "격수 좌표만 추종."
-        )
-        self.chk_follow_only.stateChanged.connect(self._on_follow_only)
+        # 2026-06-13 항목13: 도사 '따라가기' 체크박스 제거 (쩔캐 모드로 대체).
+        #   내부 follow_only/follow_light 플래그는 쩔캐가 직접 사용(잔존).
         run_row.addWidget(self.btn_start)
         run_row.addWidget(self.btn_stop)
         # 실행 상태 pill — 시작/정지 누른 결과가 즉시 보이도록.
@@ -412,7 +427,6 @@ class MainWindow(QtWidgets.QMainWindow):
         run_row.addWidget(self.lbl_run_status)
         # chk_arm 은 run_row 에 넣지 않음 (hidden 내부 상태).
         run_row.addWidget(self.btn_pause)
-        run_row.addWidget(self.chk_follow_only)
         run_row.addStretch(1)
         root.addLayout(run_row)
 
@@ -448,7 +462,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.spin_jipok_cd.setRange(1, 3600)
         self.spin_jipok_cd.setValue(30)
         self.spin_jipok_cd.setToolTip(
-            "지폭지술 쿨타임(초). 시전 시각 기준 격수 오버레이에 잔여 쿨 표시."
+            "지폭지술 쿨타임(초) — 2026-06-13 항목7: 쿨 영역 OCR('지폭지술 N초')\n"
+            "이 1차. 이 값은 쿨 영역 미지정 시 시전시각 기준 폴백용."
         )
         self.spin_jipok_cd.valueChanged.connect(self._on_jipok_cd_changed)
         _jj_keys.addWidget(self.spin_jipok_cd)
@@ -492,30 +507,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.attacker_panel_layout.setContentsMargins(4, 4, 4, 4)
         self.attacker_panel_layout.setSpacing(2)
         self._healer_rows = []
-        # 일괄 제어 행 (전체 ▶ ‖ ■ 따O 따X).
+        # 일괄 제어 행 (전체 ▶ ‖ ■). 2026-06-13 항목13: 따O/따X 제거.
         all_row = QtWidgets.QHBoxLayout()
         all_row.setSpacing(3)
         btn_all_start = QtWidgets.QPushButton("전체 ▶")
         btn_all_pause = QtWidgets.QPushButton("전체 ‖")
         btn_all_stop = QtWidgets.QPushButton("전체 ■")
-        btn_all_fol_on = QtWidgets.QPushButton("전체 따O")
-        btn_all_fol_off = QtWidgets.QPushButton("전체 따X")
-        btn_all_fol_on.setToolTip("전체 따라가기 전용 ON (주력힐/파력무참 OFF)")
-        btn_all_fol_off.setToolTip("전체 따라가기 전용 OFF (전투 복귀)")
         btn_all_start.clicked.connect(lambda: self._send_ctrl(-1, "start"))
         btn_all_pause.clicked.connect(lambda: self._send_ctrl(-1, "pause"))
         btn_all_stop.clicked.connect(lambda: self._send_ctrl(-1, "stop"))
-        btn_all_fol_on.clicked.connect(lambda: self._send_ctrl(-1, "follow_on"))
-        btn_all_fol_off.clicked.connect(lambda: self._send_ctrl(-1, "follow_off"))
-        for b in (btn_all_start, btn_all_pause, btn_all_stop,
-                  btn_all_fol_on, btn_all_fol_off):
+        for b in (btn_all_start, btn_all_pause, btn_all_stop):
             b.setMinimumWidth(52)
             b.setMaximumWidth(90)
         all_row.addWidget(btn_all_start)
         all_row.addWidget(btn_all_pause)
         all_row.addWidget(btn_all_stop)
-        all_row.addWidget(btn_all_fol_on)
-        all_row.addWidget(btn_all_fol_off)
+        all_row.addStretch(1)
         all_container = QtWidgets.QWidget()
         all_container.setLayout(all_row)
         self.attacker_panel_layout.addWidget(all_container)
@@ -564,15 +571,14 @@ class MainWindow(QtWidgets.QMainWindow):
         ov_row.addWidget(self.spin_cave_x)
         ov_row.addWidget(QtWidgets.QLabel("굴 순서"))
         self.cave_order_edit = QtWidgets.QLineEdit()
-        self.cave_order_edit.setPlaceholderText("예: 5,4,3,2 — 비우면 자동 학습")
+        self.cave_order_edit.setPlaceholderText("네비 x 입력 시 추천 자동 채움")
         self.cave_order_edit.setToolTip(
-            "굴(y) 사냥 순서. 직접 입력=수동 고정, 비우면 실주행 학습.\n"
-            "학습 확정 시 자동으로 채워짐 (동작 중 수정 즉시 반영)."
+            "굴(y) 사냥 순서 (수동 적용). 네비 x 지정 시 RECOMMEND5 자동 채움 —\n"
+            "4굴로 줄이면 즉시 반영. 네비 x 미지정(0)이면 입력 불가(자동 추천/학습)."
         )
+        # 네비 x=0(기본) 이면 순서 입력 불가 (항목3).
+        self.cave_order_edit.setEnabled(False)
         self.cave_order_edit.textChanged.connect(self._on_cave_order_changed)
-        # 자동입력(프로그램) vs 사용자 수정 구분 플래그.
-        self._cave_order_programmatic = False
-        self._cave_order_last_auto = ""
         self._hunt_nav_notice_seq = 0
         ov_row.addWidget(self.cave_order_edit, 1)
         ov_container = QtWidgets.QWidget()
@@ -1020,28 +1026,76 @@ class MainWindow(QtWidgets.QMainWindow):
             self._tick_overlay_visibility()
         except Exception:
             pass
+        # 역할/닉 직전 세션 저장 + 로거 세션 갱신.
+        self._persist_session()
+
+    def _on_nick_changed(self, _text=None):
+        """닉네임 필드 변경 → 세션 닉 갱신 + 저장 (항목8)."""
+        self._persist_session()
+
+    def _effective_nick(self) -> str:
+        """유효 닉: 사용자 입력 우선, 비면 워커 OCR 닉 폴백 (항목9)."""
+        try:
+            typed = self.nick_edit.text().strip()
+        except Exception:
+            typed = ""
+        if typed:
+            return typed
+        # 비입력 → 워커가 OCR 로 읽은 자기 닉 사용 (가능할 때).
+        w = getattr(self, "worker", None)
+        if w is not None and hasattr(w, "ocr_nick"):
+            try:
+                ocr = str(w.ocr_nick() or "").strip()
+                if ocr:
+                    return ocr
+            except Exception:
+                pass
+        return ""
+
+    def _current_role_token(self) -> str:
+        """세션 저장용 역할 토큰: attacker | jjeol | healer."""
+        if getattr(self, "rb_attacker", None) is not None \
+                and self.rb_attacker.isChecked():
+            return "attacker"
+        if getattr(self, "jjeol", False):
+            return "jjeol"
+        return "healer"
+
+    def _persist_session(self) -> None:
+        """닉/역할을 직전 세션 파일에 저장 + 로거 세션 닉 갱신.
+
+        멱등 — (닉, 역할) 이 직전과 같으면 파일 IO 생략 (주기 호출 안전).
+        """
+        nick = self._effective_nick()
+        self._session_nick = nick
+        role = self._current_role_token()
+        if getattr(self, "_last_persisted", None) == (nick, role):
+            return
+        self._last_persisted = (nick, role)
+        try:
+            from ..utils import logger_setup
+            logger_setup.set_session(nick, role)
+        except Exception:
+            pass
+        # 직전 닉이 비어있지 않을 때만 파일 저장 — 빈 닉으로 덮어쓰지 않음.
+        try:
+            from ..app.healer_gui import _save_last
+            _save_last(nick, role)
+        except Exception:
+            pass
 
     def _apply_role_ui(self):
         """창 크기는 setFixedSize로 고정. 역할에 따라 프리뷰/버튼 가시성만 토글."""
         is_healer = (self.role == "healer")
         is_jjeol = bool(getattr(self, "jjeol", False)) and is_healer
-        # 쩔캐: 프리뷰 제거(경량) + 스킬 설정 불필요 + 따라가기 강제 ON.
+        # 쩔캐: 프리뷰 제거(경량) + 스킬 설정 불필요 + 격수추종(내부 follow) 강제.
         self.preview.setVisible(is_healer and not is_jjeol)
         # 힐러 전용 설정은 숨겨도 되지만, 팝업이라 버튼만 남기고 그대로 둠.
         # 격수 모드에선 ARM/스킬/파라미터 버튼 비활성.
         self.chk_arm.setEnabled(is_healer)
         self.btn_pause.setEnabled(is_healer)
-        if is_jjeol:
-            # 격수추종이 기본 — 체크 고정 후 비활성 (해제 실수 방지).
-            try:
-                self.chk_follow_only.blockSignals(True)
-                self.chk_follow_only.setChecked(True)
-                self.chk_follow_only.blockSignals(False)
-            except Exception:
-                pass
-            self.chk_follow_only.setEnabled(False)
-        else:
-            self.chk_follow_only.setEnabled(is_healer)
+        # 2026-06-13 항목13: '따라가기' 체크박스 제거 — 쩔캐 follow 는 워커에
+        #   직접 주입(start_worker 에서 jjeol 이면 follow_only/light=True).
         self.btn_skill_cfg.setEnabled(is_healer and not is_jjeol)
         self.btn_param_cfg.setEnabled(is_healer)
         self.btn_net_cfg.setEnabled(not is_healer)
@@ -1155,30 +1209,21 @@ class MainWindow(QtWidgets.QMainWindow):
             lbl_peer = QtWidgets.QLabel(peer)
             lbl_peer.setStyleSheet("color:#98a2b3;font-size:9pt;")
             lbl_peer.setMinimumWidth(95)
+            # 2026-06-13 항목13: 힐러별 따O/따X 버튼 제거 (쩔캐 모드로 대체).
             btn_s = QtWidgets.QPushButton("▶")
             btn_p = QtWidgets.QPushButton("‖")
             btn_st = QtWidgets.QPushButton("■")
-            btn_fon = QtWidgets.QPushButton("따O")
-            btn_foff = QtWidgets.QPushButton("따X")
-            btn_fon.setToolTip("따라가기 전용 ON")
-            btn_foff.setToolTip("따라가기 전용 OFF (전투 복귀)")
             for b in (btn_s, btn_p, btn_st):
                 b.setFixedWidth(22)
-            for b in (btn_fon, btn_foff):
-                b.setFixedWidth(38)
             btn_s.clicked.connect(lambda _, i=idx: self._send_ctrl(i, "start"))
             btn_p.clicked.connect(lambda _, i=idx: self._send_ctrl(i, "pause"))
             btn_st.clicked.connect(lambda _, i=idx: self._send_ctrl(i, "stop"))
-            btn_fon.clicked.connect(lambda _, i=idx: self._send_ctrl(i, "follow_on"))
-            btn_foff.clicked.connect(lambda _, i=idx: self._send_ctrl(i, "follow_off"))
             hdr.addWidget(lbl_badge)
             hdr.addWidget(lbl)
             hdr.addWidget(lbl_peer, 1)
             hdr.addWidget(btn_s)
             hdr.addWidget(btn_p)
             hdr.addWidget(btn_st)
-            hdr.addWidget(btn_fon)
-            hdr.addWidget(btn_foff)
             hdr_wrap = QtWidgets.QWidget()
             hdr_wrap.setLayout(hdr)
             box_lay.addWidget(hdr_wrap)
@@ -1248,6 +1293,11 @@ class MainWindow(QtWidgets.QMainWindow):
             row["lbl_badge"].setToolTip("연결됨 / ARM OFF")
 
     def _tick_connection_state(self) -> None:
+        # 닉 미입력 시 OCR 닉 폴백을 주기적으로 반영 (항목9, 멱등).
+        try:
+            self._persist_session()
+        except Exception:
+            pass
         if self.role != "attacker":
             return
         for idx in range(len(self._healer_rows)):
@@ -2031,36 +2081,66 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def _on_cave_x_changed(self, v) -> None:
-        """선비족 네비 x 수동 지정 (0=자동) → 워커 즉시 반영."""
+        """선비족 네비 x 수동 지정 (0=자동) → 워커 즉시 반영 (항목 1·2·3).
+
+        x>0(수동): 굴 순서칸 활성 + RECOMMEND5 자동 채움(사용자 적용으로
+                   간주, 4굴로 줄이면 즉시 반영) → 워커에 user_edit 로 전달.
+        x=0(자동): 굴 순서칸 비움 + 비활성(입력 불가) → 자동 추천/학습.
+        네비 x/순서는 세션 저장 안 함 (항목4) — _save_settings 호출 제거.
+        """
+        v = int(v)
         if (self.worker is not None
                 and hasattr(self.worker, "set_cave_x_override")):
             try:
-                self.worker.set_cave_x_override(int(v))
+                self.worker.set_cave_x_override(v)
             except Exception:
                 pass
-        try:
-            self._save_settings()
-        except Exception:
-            pass
+        if v > 0:
+            try:
+                from ..app.hunt_nav import RECOMMEND5
+                rec = RECOMMEND5.get(v, [])
+            except Exception:
+                rec = []
+            txt = ",".join(map(str, rec))
+            self.cave_order_edit.setEnabled(True)
+            # 자동 채움 — textChanged 차단 후 워커엔 직접 user_edit 전달.
+            self.cave_order_edit.blockSignals(True)
+            try:
+                self.cave_order_edit.setText(txt)
+            finally:
+                self.cave_order_edit.blockSignals(False)
+            if (self.worker is not None
+                    and hasattr(self.worker, "set_cave_order_text")):
+                try:
+                    self.worker.set_cave_order_text(txt, user_edit=True)
+                except Exception:
+                    pass
+        else:
+            self.cave_order_edit.blockSignals(True)
+            try:
+                self.cave_order_edit.clear()
+            finally:
+                self.cave_order_edit.blockSignals(False)
+            self.cave_order_edit.setEnabled(False)
+            if (self.worker is not None
+                    and hasattr(self.worker, "set_cave_order_text")):
+                try:
+                    self.worker.set_cave_order_text("", user_edit=True)
+                except Exception:
+                    pass
 
     def _on_cave_order_changed(self, text) -> None:
-        """굴 순서 텍스트 변경.
+        """굴 순서 텍스트 직접 수정 → 수동 적용 즉시 반영 (항목 6).
 
-        프로그램 자동입력(_cave_order_programmatic)은 트래커에 echo 하지 않음
-        (학습 유지). 사용자 직접 수정 → 수동 고정 / 비움 → 학습 재개.
+        4굴로 줄이면 set_manual_text 가 즉시 반영. 비우면 학습/추천 복귀.
+        세션 저장 안 함 (항목4).
         """
-        if self._cave_order_programmatic:
-            return
         if (self.worker is not None
                 and hasattr(self.worker, "set_cave_order_text")):
             try:
                 self.worker.set_cave_order_text(str(text), user_edit=True)
             except Exception:
                 pass
-        try:
-            self._save_settings()
-        except Exception:
-            pass
 
     def _on_toggle_overlay_edit(self, state) -> None:
         on = (state == QtCore.Qt.Checked)
@@ -2122,6 +2202,7 @@ class MainWindow(QtWidgets.QMainWindow):
             except Exception as e:
                 self._append_log(f"[쿨 영역] 워커 반영 실패: {e}")
         self._refresh_region_overlay()
+        self._save_region_profile()  # 항목12: 해상도 프로파일 갱신.
 
     def _on_clear_cd_region(self) -> None:
         self.cfg.cooldown.region_x = -1
@@ -2169,6 +2250,7 @@ class MainWindow(QtWidgets.QMainWindow):
             except Exception as e:
                 self._append_log(f"[닉 영역] 워커 반영 실패: {e}")
         self._refresh_region_overlay()
+        self._save_region_profile()  # 항목12: 해상도 프로파일 갱신.
 
     def _on_clear_nick_region(self) -> None:
         self.cfg.cooldown.nick_region_x = -1
@@ -2216,6 +2298,7 @@ class MainWindow(QtWidgets.QMainWindow):
             except Exception as e:
                 self._append_log(f"[버프 영역] 워커 반영 실패: {e}")
         self._refresh_region_overlay()
+        self._save_region_profile()  # 항목12: 해상도 프로파일 갱신.
 
     def _on_clear_buff_region(self) -> None:
         self.cfg.cooldown.buff_region_x = -1
@@ -2577,6 +2660,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._apply_region_to_worker(kind)
         self._refresh_region_overlay()
         self._refresh_overlay_anchors()
+        self._save_region_profile()  # 항목12: 해상도 프로파일 갱신.
 
     def _on_clear_region(self, kind: str) -> None:
         self._regions.pop(kind, None)
@@ -2859,18 +2943,6 @@ class MainWindow(QtWidgets.QMainWindow):
             except Exception:
                 pass
 
-    def _on_follow_only(self, state):
-        """따라가기 토글. 스킬 OFF + 경량 모드(빨탭 YOLO + cooldown/buff/hp/mp
-        OCR 정지). 유지: coord/맵 OCR(이동) + 경험치 OCR + 격수 좌표 추종.
-        저사양 대응."""
-        on = (state == QtCore.Qt.Checked)
-        if self.worker:
-            if hasattr(self.worker, "follow_only"):
-                self.worker.follow_only = on
-            if hasattr(self.worker, "follow_light"):
-                self.worker.follow_light = on
-        self._append_log(f"FOLLOW(경량)={'ON' if on else 'OFF'}")
-
     def _on_toggle_low_spec(self, state) -> None:
         """저사양 모드 토글. YOLO 주기/해상도, 프리뷰 주기, OCR poll 일괄 조정.
         워커 실행 중이면 실시간 반영, 아니면 cfg에 저장해 다음 start에 적용.
@@ -3139,15 +3211,39 @@ class MainWindow(QtWidgets.QMainWindow):
             if not r:
                 return
             origin = (int(r["left"]), int(r["top"]))
+            size = (int(r["width"]), int(r["height"]))
             prev = self._msw_last_client_origin
+            prev_size = getattr(self, "_msw_last_size", None)
             if prev is None:
                 self._msw_last_client_origin = origin
+                self._msw_last_size = size
+                return
+            # 항목11: 해상도(클라이언트 크기) 변경 → delta shift 대신 그 해상도
+            #   프로파일 재적용 (영역 좌표 자동 재지정). 없으면 baseline만 갱신.
+            if prev_size is not None and size != prev_size:
+                self._msw_last_client_origin = origin
+                self._msw_last_size = size
+                try:
+                    from ..utils import region_profiles as rp
+                    n = rp.apply_profile_for_resolution(self, origin, size)
+                    if n > 0:
+                        self._region_profile_res = rp.res_key(*size)
+                        self._append_log(
+                            f"[영역] 해상도 변경 {size[0]}x{size[1]} → "
+                            f"프로파일 재적용 ({n}개)")
+                    else:
+                        self._append_log(
+                            f"[영역] 해상도 변경 {size[0]}x{size[1]} → "
+                            "프로파일 없음 (영역 재설정 필요)")
+                except Exception:
+                    pass
                 return
             dx = origin[0] - prev[0]
             dy = origin[1] - prev[1]
             if dx == 0 and dy == 0:
                 return
             self._msw_last_client_origin = origin
+            self._msw_last_size = size
             # 1) self._regions shift.
             for k, (x, y, w, h) in list(self._regions.items()):
                 self._regions[k] = (int(x + dx), int(y + dy), int(w), int(h))
@@ -3331,10 +3427,10 @@ class MainWindow(QtWidgets.QMainWindow):
                     self._append_log(f"[사냥 보고] 표시 실패: {e}")
 
     def _tick_hunt_nav(self) -> None:
-        """선비족 네비 스냅샷 → 오버레이 + 굴 순서 자동입력 + 안내 알림.
+        """선비족 네비 스냅샷 → 오버레이 + 안내 알림.
 
-        자동입력은 programmatic 플래그로 textChanged echo 를 차단 —
-        사용자 직접 수정만 트래커에 user_edit 로 전달 (학습/수동 구분 핵심).
+        2026-06-13: 굴 순서 텍스트 자동입력 제거 (항목4 — 학습/추천 순서는
+        오버레이로만 표시, 텍스트칸은 수동 입력 전용).
         """
         if self.worker is None or not hasattr(
                 self.worker, "get_hunt_nav_snapshot"):
@@ -3351,21 +3447,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._hunt_nav_overlay.update_nav(snap)
         except Exception:
             pass
-        # 2) 텍스트필드 자동입력 (학습 잠정/확정 값 — 수동 모드는 auto_text
-        #    가 그 값 그대로라 무해. 새 값일 때만 1회 적용).
-        try:
-            auto = str(snap.get("auto_text") or "")
-            if auto and auto != self._cave_order_last_auto \
-                    and auto != self.cave_order_edit.text().replace(" ", ""):
-                self._cave_order_last_auto = auto
-                self._cave_order_programmatic = True
-                try:
-                    self.cave_order_edit.setText(auto)
-                finally:
-                    self._cave_order_programmatic = False
-        except Exception:
-            pass
-        # 3) 안내 알림 (notice_seq 증가 시 1회).
+        # 2) 안내 알림 (notice_seq 증가 시 1회).
         try:
             seq = int(snap.get("notice_seq") or 0)
             if seq != self._hunt_nav_notice_seq:
@@ -3628,6 +3710,76 @@ class MainWindow(QtWidgets.QMainWindow):
             except Exception:
                 pass
 
+    def _msw_geom(self):
+        """msw 클라이언트 geom → (hwnd, (origin_x, origin_y), (W, H)) 또는 None."""
+        try:
+            from ..input.keys import find_windows_by_process
+            from ..capture.screen import get_window_rect
+            tw = str(getattr(self.cfg.input, "target_window", "msw.exe"))
+            wins = (find_windows_by_process(tw)
+                    if tw.lower().endswith(".exe") else [])
+            if not wins:
+                return None
+            hwnd = int(wins[0])
+            r = get_window_rect(hwnd)
+            if not r:
+                return None
+            return (hwnd, (int(r["left"]), int(r["top"])),
+                    (int(r["width"]), int(r["height"])))
+        except Exception:
+            return None
+
+    def _auto_apply_region_profile(self, pull_cloud: bool = True) -> None:
+        """해상도별 OCR 영역 프로파일 자동 적용 (항목10·11).
+
+        msw 클라이언트 해상도 감지 → (클라우드 pull 후) 로컬 프로파일이 있으면
+        현재 창 원점 기준 절대좌표로 변환해 영역 필드 자동 설정. 프로파일이
+        없고 이미 설정된 영역이 있으면 그 영역을 이 해상도 프로파일로 시드.
+        """
+        from ..utils import region_profiles as rp
+        g = self._msw_geom()
+        if g is None:
+            return
+        _hwnd, origin, res = g
+        if pull_cloud:
+            try:
+                from . import cloud_panel
+                cloud_panel.pull_region_profiles(self)
+            except Exception:
+                pass
+        try:
+            n = rp.apply_profile_for_resolution(self, origin, res)
+        except Exception:
+            n = 0
+        if n > 0:
+            self._region_profile_res = rp.res_key(*res)
+            try:
+                self._append_log(
+                    f"[영역] {res[0]}x{res[1]} 프로파일 자동 적용 ({n}개)")
+            except Exception:
+                pass
+        else:
+            # 프로파일 없음 — 이미 설정된 영역을 이 해상도로 시드 저장.
+            try:
+                rk = rp.save_current_profile(self, origin, res)
+                if rk:
+                    self._region_profile_res = rk
+            except Exception:
+                pass
+
+    def _save_region_profile(self) -> None:
+        """현재 영역들을 현재 해상도 프로파일에 저장 (로컬). 영역 변경 시 호출."""
+        from ..utils import region_profiles as rp
+        g = self._msw_geom()
+        if g is None:
+            return
+        _hwnd, origin, res = g
+        try:
+            rp.save_current_profile(self, origin, res)
+            self._region_profile_res = rp.res_key(*res)
+        except Exception:
+            pass
+
     def _auto_startup(self):
         """GUI 로드 직후 1회: **통신 연결 + Heartbeat** (워커는 기동하지 않음).
 
@@ -3769,8 +3921,7 @@ class MainWindow(QtWidgets.QMainWindow):
         start       → 워커 기동 + armed=True.
         pause       → 워커 기동 + armed=False.
         stop        → 이미 정지 상태 → 무시 + 로그.
-        follow_on   → chk_follow_only ON (워커 기동하지 않음).
-        follow_off  → chk_follow_only OFF (워커 기동하지 않음).
+        follow_on/off → 2026-06-13 항목13 폐지 — 무시.
         """
         c = str(cmd or "").lower()
         # ping은 heartbeat 수신 표시만 하면 되므로 별도 로그/동작 없음.
@@ -3784,14 +3935,8 @@ class MainWindow(QtWidgets.QMainWindow):
             # 이미 정지 → 아무 것도 안 함.
             return
         if c in ("follow_on", "follow_off"):
-            # follow 상태만 토글. 워커 idle 상태에서는 UI 체크박스만 업데이트.
-            on = (c == "follow_on")
-            try:
-                self.chk_follow_only.blockSignals(True)
-                self.chk_follow_only.setChecked(bool(on))
-                self.chk_follow_only.blockSignals(False)
-            except Exception:
-                pass
+            # 2026-06-13 항목13: 원격 따라가기 제어 제거 — 구패킷 무시.
+            self._append_log(f"[REMOTE-IDLE] {c} 무시 (따라가기 제어 폐지)")
             return
         if c in ("start", "pause"):
             armed_on = (c == "start")
@@ -3807,8 +3952,11 @@ class MainWindow(QtWidgets.QMainWindow):
     def _start_healer(self):
         self.worker = HealerWorker(self.cfg)
         self.worker.armed = self.chk_arm.isChecked()
-        self.worker.follow_only = self.chk_follow_only.isChecked()
-        self.worker.follow_light = self.chk_follow_only.isChecked()
+        # 2026-06-13 항목13: '따라가기' 체크박스 제거 — 쩔캐 모드면 격수추종
+        #   경량 follow 강제, 일반 도사면 OFF (전투). (쩔캐 블록이 뒤에서 재확인.)
+        _fol = bool(getattr(self, "jjeol", False))
+        self.worker.follow_only = _fol
+        self.worker.follow_light = _fol
         self.worker.min_w = self.minw_spin.value()
         self.worker.min_h = self.minh_spin.value()
         self.worker.coord_tol = self.tol_spin.value()
@@ -3897,14 +4045,8 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
         if c in ("follow_on", "follow_off"):
-            # follow는 chk_follow_only를 워커가 갱신하지 않음 → 여기서 업데이트.
-            try:
-                self.chk_follow_only.blockSignals(True)
-                self.chk_follow_only.setChecked(c == "follow_on")
-                self.chk_follow_only.blockSignals(False)
-            except Exception:
-                pass
-            self._append_log(f"[REMOTE] cmd={c}")
+            # 2026-06-13 항목13: 원격 따라가기 제어 폐지 — 구패킷 무시.
+            self._append_log(f"[REMOTE] cmd={c} 무시 (따라가기 제어 폐지)")
             return
         # start / pause만 chk_arm 토글.
         try:
@@ -4077,6 +4219,8 @@ class MainWindow(QtWidgets.QMainWindow):
             key = cloud_panel.auto_upload_maps(self)
             if key and hasattr(self, "_cloud_lbl"):
                 self._cloud_lbl.setText(f"맵 업로드: {key}")
+            # 항목12: 해상도별 영역 프로파일도 정지 시 클라우드 수집.
+            cloud_panel.auto_upload_region_profiles(self)
         except Exception:
             pass
         try:

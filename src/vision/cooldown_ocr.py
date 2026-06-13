@@ -139,6 +139,9 @@ _DEFAULT_TARGETS: Dict[str, List[str]] = {
     "백호의희원": ["백호의희원"],
     # 백호의희원'첨 — '/특수문자는 _normalize_name에서 제거됨.
     "백호의희원첨": ["백호의희원첨"],
+    # 지폭지술 — 쩔캐(현인) 전용 쿨 OCR (2026-06-13 항목7). 일반 도사 HUD엔
+    # 없어 -1 유지(무해). 완전일치라 다른 스킬 오탐 없음.
+    "지폭지술": ["지폭지술"],
 }
 
 # 타겟 오인식 방지 — 이 토큰이 라인에 포함된 경우 해당 타겟은 매칭하지 않음.
@@ -307,6 +310,11 @@ class CooldownOcr:
     def nick_region(self) -> Optional[Tuple[int, int, int, int]]:
         with self._lock:
             return self._nick_region
+
+    def nick(self) -> str:
+        """마지막으로 OCR 한 닉네임 (없으면 빈 문자열)."""
+        with self._lock:
+            return self._nick_cache or ""
 
     def init_note(self) -> str:
         return self._init_note

@@ -55,6 +55,25 @@ class AttackerWorker(QtCore.QThread):
         self._pending_cave_order: str = ""
         self._pending_cave_x: int = 0
 
+    def ocr_nick(self) -> str:
+        """격수 OCR 닉 (있으면). 격수는 닉 OCR 미사용이 일반 — 폴백용 빈 문자열.
+
+        2026-06-13 항목9: GUI 닉 미입력 시 폴백. 격수 앱이 닉 OCR 을 노출하면
+        그 값을, 아니면 빈 문자열을 돌려준다.
+        """
+        app = getattr(self, "_app", None)
+        for attr in ("ocr_nick", "_cooldown_ocr"):
+            obj = getattr(app, attr, None) if app is not None else None
+            if obj is None:
+                continue
+            try:
+                if attr == "ocr_nick":
+                    return str(obj() or "")
+                return str(obj.nick() or "")
+            except Exception:
+                pass
+        return ""
+
     def stop(self):
         self._stop = True
         if self._app:

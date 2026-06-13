@@ -1,20 +1,21 @@
 # -*- coding: utf-8 -*-
-"""선비족 사냥 순서 네비게이션 로직 (격수 전용, 2026-06-12).
+"""선비족 사냥 순서 네비게이션 로직 (격수 전용, 2026-06-12 / 2026-06-13 개편).
 
 설계 문서: D:\\oldbaram\\선비족 네비게이션 오버레이.md
 
-- 맵명 `선비족x-y` / `제2선비족x-y` 에서 x(지역 1~5), y(굴 1~5) 파싱.
-  `(z)` 채널 숫자는 무관. 비매칭 맵(입구 등)은 무시 — 바퀴 상태 보존.
-- 순서 우선순위: 수동 입력 > 학습 확정 > 추천 유도.
-- 학습 확정 = 회전 규칙 하나로 통일: 바퀴 경계(이번 바퀴 방문 굴 재진입) 시
-  visited 를 재방문 굴 기준으로 회전.
-    5,4,3,2→5 ⇒ [5,4,3,2] / 5,4,3,2,1→4 ⇒ [4,3,2,1,5] /
-    (확정 후) 4,3,2,1→4 ⇒ [4,3,2,1] (5 자연 탈락)
-  확정 후에도 매 바퀴 재확정. 사이클 최소 길이 3 미만은 확정 보류.
-- 추천 유도: 미확정 + 첫 굴 == 추천 시작굴 → 다섯굴 추천 잠정 안내
-  (네/다섯굴 추천 시작굴 동일 — 사용자 예시 기준 다섯굴 기본).
-- 순서 밖 굴 진입: 직전 강조 유지 + out_of_order 표시, 확정 불변.
-- x 전환: 확정/수동 순서 x별 세션 캐시 저장·복원.
+2026-06-13 개편 (사용자 요청) — 우선순위: 수동 > 학습 확정 > 추천 안내.
+- 맵명 `선비족x-y(z)` / `제2선비족x-y(z)` 에서 x(지역 1~5), y(굴 1~5),
+  z(굴 내 층 1~7) 파싱. 비매칭 맵(입구 등)은 무시.
+- **수동(적용)**: 사용자가 네비 x 를 직접 지정하면 그 굴 순서를 적용.
+  순서 텍스트는 GUI 가 RECOMMEND5 로 자동 채우고, 4굴로 줄이면 즉시 반영
+  (set_manual_text). x 미지정이면 순서 입력 불가(GUI 비활성).
+- **학습(확정)**: 자동 모드에서 각 굴을 '완주'할 때 순서에 기록.
+  **완주 판정 = x-y(z) 의 z 가 7 까지 갔다가 로비(허브 선비족x)로 나온 시점**
+  (사용자 2026-06-13 정정). 한 바퀴(굴 재완주)에서 회전 규칙으로 순서
+  확정, 매 바퀴 재확정. 사이클 최소 길이 3 미만은 확정 보류.
+- **추천(안내)**: 학습 확정 전 / 미입력 시 RECOMMEND5[x] 안내 — 선비족x
+  진입 즉시. 순서 밖 굴 진입은 직전 강조 유지 + out_of_order 표시.
+- 네비 x/순서·학습값은 세션에 저장하지 않음 — GUI 재실행 시 항상 초기화.
 
 UI/오버레이는 src/ui/hunt_nav_overlay.py, 배선은 main_window.
 """
@@ -84,10 +85,16 @@ def parse_order_text(text) -> Optional[List[int]]:
 
 
 class CaveOrderTracker:
-    """굴 순서 학습/확정/유도 상태머신 (순수 로직, 스레드 안전).
+    """굴 순서 네비게이션 (순수 로직, 스레드 안전). 2026-06-13 개편.
 
-    상태(state): idle(대기) | recommend(추천 유도) | learning(학습중)
-                 | confirmed(확정) | manual(수동)
+    우선순위: manual(수동 적용) > confirmed(학습 확정) > recommend(추천 안내).
+      manual    — 사용자 네비 x 지정 + 굴 순서 적용 (set_manual_text).
+      confirmed — 자동 모드 학습 확정 순서. **완주 = z7→로비** 시점에 굴 기록,
+                  한 바퀴(굴 재완주) 회전 규칙으로 확정.
+      recommend — 미입력/확정 전 RECOMMEND5[eff_x] 안내.
+      idle      — 선비족 영역 밖 / x 미관측.
+
+    x별 캐시·텍스트 자동입력·세션 저장 없음 (GUI 재실행 초기화).
     """
 
     def __init__(self, log_cb: Optional[Callable[[str], None]] = None):
@@ -96,18 +103,15 @@ class CaveOrderTracker:
         self._base = ""
         self._x_ocr = 0          # OCR 관측 x (0=미관측)
         self._x_override = 0     # GUI 수동 x (0=자동)
+        self._manual_order: List[int] = []   # 사용자 적용 순서 (유효 시)
+        self._visited: List[int] = []        # 이번 바퀴 완주(z7→로비) 굴 시퀀스
+        self._order: List[int] = []          # 학습 확정 순서
         self._cur_y = 0
-        self._visited: List[int] = []   # 이번 바퀴 방문 시퀀스
-        self._order: List[int] = []     # 현재 적용 순서
-        self._state = "idle"
-        self._manual = False
         self._next_y = 0
         self._out_of_order = False
-        self._cache: dict = {}          # x -> (order list, state)
-        self._auto_text = ""            # GUI 텍스트필드 자동 입력값
         self._notice = ""
         self._notice_seq = 0
-        # 허브/완주 추적 (2026-06-12): 굴(7)→허브(선비족x) 도착 = 강조 타이밍.
+        # 허브/완주 추적: 굴 z7 도달 후 허브(선비족x) 도착 = 완주 확정 + 강조.
         self._at_hub = False
         self._from_z7 = False
         self._last_z = 0                # 현재(직전) 굴에서 마지막 관측 (z).
@@ -116,6 +120,26 @@ class CaveOrderTracker:
 
     def eff_x(self) -> int:
         return self._x_override or self._x_ocr
+
+    def _active_order(self) -> List[int]:
+        """적용 순서: 수동 > 학습 확정 > 추천(RECOMMEND5[eff_x])."""
+        if self._manual_order:
+            return list(self._manual_order)
+        if self._order:
+            return list(self._order)
+        x = self.eff_x()
+        if x in RECOMMEND5:
+            return list(RECOMMEND5[x])
+        return []
+
+    def _state(self) -> str:
+        if self._manual_order:
+            return "manual"
+        if self._order:
+            return "confirmed"
+        if self.eff_x() in RECOMMEND5:
+            return "recommend"
+        return "idle"
 
     def set_x_override(self, x: int) -> None:
         with self._lock:
@@ -126,46 +150,40 @@ class CaveOrderTracker:
                 self._switch_x(new)
 
     def set_manual_text(self, text, user_edit: bool = True) -> None:
-        """텍스트필드 변경 반영.
+        """굴 순서 텍스트 반영 (항목 1·2·6).
 
-        user_edit=True(사용자 직접 수정): 유효 → 수동 고정(학습이 덮지 않음),
-        빈 값 → 학습 재개. 무효 비공백 → 무시(이전 유지).
-        user_edit=False(프로그램 echo): no-op (자동입력 재진입 차단).
+        user_edit=True: 유효(3~5굴) → 수동 적용 즉시 반영. 빈 값 → 수동 해제
+        (학습 확정 순서 / 추천 안내로 복귀). 무효 비공백 → 무시(이전 유지).
+        user_edit=False: no-op (프로그램 echo 재진입 차단).
         """
         if not user_edit:
             return
         with self._lock:
             parsed = parse_order_text(text)
             if parsed:
-                self._manual = True
-                self._order = parsed
-                self._state = "manual"
-                x = self.eff_x()
-                if x:
-                    self._cache[x] = (list(parsed), "manual")
+                self._manual_order = parsed
                 self._recalc_next()
                 self._set_notice(
-                    f"굴 순서 수동 설정: {'→'.join(map(str, parsed))}")
+                    f"굴 순서 적용: {'→'.join(map(str, parsed))}")
             elif not str(text or "").strip():
-                # 비움 → 학습 재개.
-                self._manual = False
-                self._order = []
-                self._state = "idle"
-                self._visited = [self._cur_y] if self._cur_y else []
-                self._auto_text = ""
-                x = self.eff_x()
-                if x and x in self._cache:
-                    del self._cache[x]
+                self._manual_order = []
                 self._recalc_next()
-                self._set_notice("굴 순서 비움 — 자동 학습 재개")
+                x = self.eff_x()
+                if self._order:
+                    self._set_notice("수동 해제 — 학습 순서로 복귀")
+                elif x in RECOMMEND5:
+                    self._set_notice(
+                        "추천 순서 안내: "
+                        f"{'→'.join(map(str, RECOMMEND5[x]))}")
+                else:
+                    self._set_notice("굴 순서 비움")
             # 무효 비공백은 무시.
 
     def observe(self, map_name: str) -> None:
         """맵 변경 시 호출 (격수 OCR 확정 맵명). 비매칭 맵은 무시.
 
-        허브(선비족x) 도착 시: 직전 굴이 (7)에서 나온 거면(from_z7) 다음 굴
-        강조 안내 타이밍 (사용자 2026-06-12: '(7)에서 나와서 선비족x로
-        왔을때'). 굴 진입 시 at_hub 해제.
+        자동 모드 선비족x 최초 진입 시 즉시 추천 안내(항목5). 굴 내 z 진행을
+        _last_z 로 추적 → z7 도달 후 허브(선비족x) 도착 시 그 굴 완주 학습.
         """
         p = parse_map(map_name)
         if p is None:
@@ -176,14 +194,21 @@ class CaveOrderTracker:
             old_eff = self.eff_x()
             self._x_ocr = x
             new_eff = self.eff_x()
-            if new_eff != old_eff and old_eff != 0:
-                self._switch_x(new_eff)
+            if new_eff != old_eff:
+                if old_eff != 0:
+                    self._switch_x(new_eff)
+                else:
+                    # 최초 x 관측 — 자동 모드면 추천 즉시 안내 (항목5).
+                    self._announce_recommend(new_eff)
             if y == 0:
-                # 허브 도착 — 직전 굴 마지막 (z)가 7이면 강조 안내 발동.
+                # 허브(로비) 도착 — 직전 굴 z7 완주면 학습 확정 + 강조 안내.
                 self._at_hub = True
                 self._from_z7 = (self._last_z == 7)
-                if self._from_z7 and self._next_y:
-                    self._set_notice(f"다음 굴: {self._next_y}굴로 이동")
+                if self._from_z7:
+                    if not self._manual_order and self._cur_y:
+                        self._learn_complete(self._cur_y)
+                    if self._next_y:
+                        self._set_notice(f"다음 굴: {self._next_y}굴로 이동")
                 return
             self._at_hub = False
             self._from_z7 = False
@@ -192,10 +217,6 @@ class CaveOrderTracker:
                 return  # dedup
             self._cur_y = y
             self._last_z = z
-            if self._manual:
-                self._recalc_next()
-                return
-            self._learn(new_eff, y)
             self._recalc_next()
 
     def snapshot(self) -> dict:
@@ -205,11 +226,11 @@ class CaveOrderTracker:
                 "x": self.eff_x(),
                 "cur_y": self._cur_y,
                 "next_y": self._next_y,
-                "order": list(self._order),
-                "state": self._state,
+                "order": self._active_order(),
+                "state": self._state(),
                 "out_of_order": self._out_of_order,
                 "visited": list(self._visited),
-                "auto_text": self._auto_text,
+                "auto_text": "",          # 호환 (자동입력 제거 — 항목4)
                 "notice": self._notice,
                 "notice_seq": self._notice_seq,
                 "at_hub": self._at_hub,
@@ -219,66 +240,61 @@ class CaveOrderTracker:
 
     # ── 내부 ─────────────────────────────────────────────────────────────
 
-    def _learn(self, x: int, y: int) -> None:
+    def _announce_recommend(self, x: int) -> None:
+        """자동 모드(수동 미입력) 첫 x 관측 → 다섯굴 추천 즉시 안내 (항목5)."""
+        if not self._manual_order and not self._order and x in RECOMMEND5:
+            self._set_notice(
+                f"추천 순서 안내: {'→'.join(map(str, RECOMMEND5[x]))}")
+
+    def _learn_complete(self, y: int) -> None:
+        """굴 y 완주(z7→로비) 학습. 굴 재완주(바퀴 경계) 시 회전 확정."""
         if y in self._visited:
-            # 바퀴 경계 — 회전 확정.
             idx = self._visited.index(y)
             cyc = self._visited[idx:] + self._visited[:idx]
             if len(cyc) >= _MIN_CYCLE:
                 self._order = cyc
-                self._state = "confirmed"
-                if x:
-                    self._cache[x] = (list(cyc), "confirmed")
-                self._auto_text = ",".join(map(str, cyc))
                 self._set_notice(
                     f"굴 순서 확정: {'→'.join(map(str, cyc))}")
             self._visited = [y]
-            return
-        self._visited.append(y)
-        if self._state in ("idle", "learning", "recommend"):
-            # 확정 전에는 텍스트필드에 잠정 시퀀스 노출.
-            self._auto_text = ",".join(map(str, self._visited))
-        if (self._state == "idle" and len(self._visited) == 1 and x
-                and RECOMMEND5.get(x) and y == RECOMMEND5[x][0]):
-            # 첫 굴 == 추천 시작굴 → 다섯굴 추천 잠정 유도.
-            self._order = list(RECOMMEND5[x])
-            self._state = "recommend"
+        else:
+            self._visited.append(y)
             self._set_notice(
-                f"추천 순서 유도: {'→'.join(map(str, self._order))}")
-        elif self._state == "idle":
-            self._state = "learning"
+                f"굴 완주 학습: {y}굴 "
+                f"(누적 {'→'.join(map(str, self._visited))})")
+        self._recalc_next()
 
     def _switch_x(self, new_x: int) -> None:
-        """지역 전환 — 바퀴 리셋 + x별 캐시 복원."""
-        self._visited = []
+        """지역 전환 — 바퀴/학습 리셋. 수동 순서는 override+main_window 가 관리."""
         self._cur_y = 0
         self._next_y = 0
         self._out_of_order = False
         self._at_hub = False
         self._from_z7 = False
         self._last_z = 0
-        ent = self._cache.get(new_x)
-        if ent:
-            self._order = list(ent[0])
-            self._state = str(ent[1])
-            self._manual = (self._state == "manual")
-            self._auto_text = ",".join(map(str, self._order))
+        self._visited = []
+        self._order = []
+        self._recalc_next()
+        if not self._manual_order and new_x in RECOMMEND5:
+            self._set_notice(
+                f"지역 {self._base or '선비족'}{new_x} — 추천 순서 안내: "
+                f"{'→'.join(map(str, RECOMMEND5[new_x]))}")
         else:
-            self._order = []
-            self._state = "idle"
-            self._manual = False
-            self._auto_text = ""
-        self._set_notice(f"지역 전환: {self._base or '선비족'}{new_x}")
+            self._set_notice(f"지역 전환: {self._base or '선비족'}{new_x}")
 
     def _recalc_next(self) -> None:
-        if self._order and self._cur_y in self._order:
-            i = self._order.index(self._cur_y)
-            self._next_y = self._order[(i + 1) % len(self._order)]
+        order = self._active_order()
+        if order and self._cur_y in order:
+            i = order.index(self._cur_y)
+            self._next_y = order[(i + 1) % len(order)]
             self._out_of_order = False
-        elif self._order and self._cur_y:
-            # 순서 밖 굴 — 직전 강조 유지 + 표시만 (확정 불변).
+        elif order and self._cur_y:
+            # 순서 밖 굴 — 직전 강조 유지 + 표시만.
             self._out_of_order = True
-        elif not self._order:
+        elif order:
+            # 아직 굴 미진입 — 첫 굴을 다음으로 안내.
+            self._next_y = order[0]
+            self._out_of_order = False
+        else:
             self._next_y = 0
             self._out_of_order = False
 

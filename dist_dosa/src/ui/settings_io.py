@@ -16,7 +16,7 @@ def collect(mw) -> dict:
         "attacker_subclass": getattr(mw, "attacker_subclass", "thief"),
         "attacker_rank": int(getattr(mw, "attacker_rank", 4)),
         "arm": mw.chk_arm.isChecked(),
-        "follow_only": mw.chk_follow_only.isChecked(),
+        # 2026-06-13 항목13: '따라가기' 체크박스 제거 — follow_only 저장 안 함.
         # Param
         "conf": mw.conf_slider.value(),
         "min_w": mw.minw_spin.value(),
@@ -99,11 +99,8 @@ def collect(mw) -> dict:
         # 선비족 네비 사용자 크기 % (2026-06-12).
         "overlay_nav_size": int(mw.nav_size_spin.value())
             if hasattr(mw, "nav_size_spin") else 100,
-        # 선비족 네비 (2026-06-12).
-        "cave_order_text": mw.cave_order_edit.text()
-            if hasattr(mw, "cave_order_edit") else "",
-        "cave_x_override": int(mw.spin_cave_x.value())
-            if hasattr(mw, "spin_cave_x") else 0,
+        # 선비족 네비 (네비 x/굴 순서): 2026-06-13 항목4 — 세션 저장 안 함.
+        #   GUI 재실행 시 항상 초기화(x=0, 순서 비움). 여기서 의도적으로 제외.
         # 스킬범위 오버레이 (격수 전용).
         "skill_range_on": bool(mw.chk_skill_range.isChecked())
             if hasattr(mw, "chk_skill_range") else False,
@@ -276,7 +273,7 @@ def load(mw):
     mw.chk_arm.blockSignals(True)
     mw.chk_arm.setChecked(True)
     mw.chk_arm.blockSignals(False)
-    mw.chk_follow_only.setChecked(bool(g("follow_only", False)))
+    # 2026-06-13 항목13: '따라가기' 체크박스 제거 — follow_only 복원 안 함.
     # Param
     if g("conf") is not None: mw.conf_slider.setValue(int(g("conf")))
     if g("min_w") is not None: mw.minw_spin.setValue(int(g("min_w")))
@@ -461,20 +458,8 @@ def load(mw):
                     _c.setChecked(bool(ok_v[_k]))
                 finally:
                     _c.blockSignals(False)
-    # 선비족 네비 복원 (시그널 차단 — 워커 미기동 상태라 echo 불필요).
-    try:
-        if g("cave_x_override") is not None and hasattr(mw, "spin_cave_x"):
-            mw.spin_cave_x.blockSignals(True)
-            mw.spin_cave_x.setValue(int(g("cave_x_override")))
-            mw.spin_cave_x.blockSignals(False)
-        if g("cave_order_text") is not None and hasattr(mw, "cave_order_edit"):
-            mw._cave_order_programmatic = True
-            try:
-                mw.cave_order_edit.setText(str(g("cave_order_text")))
-            finally:
-                mw._cave_order_programmatic = False
-    except Exception:
-        pass
+    # 선비족 네비(네비 x/굴 순서): 2026-06-13 항목4 — 복원하지 않음.
+    #   GUI 재실행 시 항상 초기화 (x=0 기본, 굴 순서칸 비움+비활성).
     # Overlay 토글: 저장값 무시, 항상 강제 ON 으로 시작.
     # 사용자 요청: UI 재시작 시 오버레이 자동 활성화 보장.
     # chk_overlay 기본값은 unchecked 이므로 setChecked(True) 는 반드시

@@ -96,6 +96,63 @@ def auto_upload_maps(mw) -> None:
         return None
 
 
+# ── 해상도별 OCR 영역 프로파일 (2026-06-13 항목10·12) ─────────────────────
+
+def pull_region_profiles(mw) -> int:
+    """클라우드 region_profiles(DB row) → 로컬 병합. 반환 = 새 해상도 수.
+
+    공유 row(app_settings id='region_profiles') data={"profiles": {WxH: {...}}}.
+    로컬에 없는 해상도만 추가 (사용자 보정 보존).
+    """
+    from ..utils import region_profiles as rp
+    try:
+        c = cloud_sync.CloudClient()
+        data = c.pull_settings(rp.CLOUD_SID)
+        if not data:
+            return 0
+        return rp.merge_into_local(data.get("profiles", data) or {})
+    except cloud_sync.CloudConfigError:
+        return 0
+    except Exception:
+        return 0
+
+
+def upload_region_profiles(mw) -> bool:
+    """로컬 region_profiles 를 클라우드 공유 row 에 병합 push (항목12 수집).
+
+    read-modify-write: 기존 클라우드 + 로컬 합쳐 push (로컬 보정값 우선).
+    해상도별 좌표 최적화의 입력 — 다중 표본 평균화는 D측 후속 작업.
+    """
+    from ..utils import region_profiles as rp
+    try:
+        c = cloud_sync.CloudClient()
+        local = rp.load_local()
+        if not local:
+            return False
+        remote = {}
+        try:
+            d = c.pull_settings(rp.CLOUD_SID)
+            if d:
+                remote = d.get("profiles", d) or {}
+        except Exception:
+            remote = {}
+        remote.update(local)
+        c.push_settings(rp.CLOUD_SID, "regions", {"profiles": remote})
+        return True
+    except cloud_sync.CloudConfigError:
+        return False
+    except Exception:
+        return False
+
+
+def auto_upload_region_profiles(mw) -> None:
+    """정지 등에서 조용히 호출 (실패 무시)."""
+    try:
+        upload_region_profiles(mw)
+    except Exception:
+        pass
+
+
 def attach(mw, root_layout) -> None:
     """클라우드 버튼 행을 root_layout 에 추가하고 핸들러를 연결."""
     row = QtWidgets.QHBoxLayout()
@@ -132,6 +189,11 @@ def attach(mw, root_layout) -> None:
             c = cloud_sync.CloudClient()
             sid = _sid()
             c.push_settings(sid, mw.role, settings_io.collect(mw))
+            # 항목12: 해상도별 영역 프로파일도 공유 row 에 병합 업로드.
+            try:
+                upload_region_profiles(mw)
+            except Exception:
+                pass
             _say(f"올림 완료 ({sid})")
         except cloud_sync.CloudConfigError:
             _say("클라우드 미설정 (~/.oldbaram_cloud.json)")
@@ -150,6 +212,12 @@ def attach(mw, root_layout) -> None:
                 json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
             )
             settings_io.load(mw)
+            # 항목10: 영역 프로파일도 pull → 현재 해상도 프로파일 자동 적용.
+            try:
+                pull_region_profiles(mw)
+                mw._auto_apply_region_profile(pull_cloud=False)
+            except Exception:
+                pass
             _say(f"내림 완료 ({sid})")
         except cloud_sync.CloudConfigError:
             _say("클라우드 미설정 (~/.oldbaram_cloud.json)")

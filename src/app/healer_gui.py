@@ -55,65 +55,36 @@ def _save_last(nick: str, role: str) -> None:
         pass
 
 
-def ask_session_info():
-    """GUI 시작 전 닉네임 + 역할 입력. 반환 {nick, role} 또는 None(취소)."""
-    last = _load_last()
-    dlg = QtWidgets.QDialog()
-    dlg.setWindowTitle("세션 정보")
-    lay = QtWidgets.QFormLayout(dlg)
-    nick_edit = QtWidgets.QLineEdit(last.get("nick", ""))
-    nick_edit.setPlaceholderText("캐릭터 닉네임")
-    role_combo = QtWidgets.QComboBox()
-    role_combo.addItems(["힐러", "격수", "쩔캐"])
-    if last.get("role") == "attacker":
-        role_combo.setCurrentText("격수")
-    elif last.get("role") == "jjeol":
-        role_combo.setCurrentText("쩔캐")
-    lay.addRow("닉네임", nick_edit)
-    lay.addRow("역할", role_combo)
-    btns = QtWidgets.QDialogButtonBox(
-        QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
-    lay.addRow(btns)
-    btns.accepted.connect(dlg.accept)
-    btns.rejected.connect(dlg.reject)
-    nick_edit.setFocus()
-    if dlg.exec_() != QtWidgets.QDialog.Accepted:
-        return None
-    _sel = role_combo.currentText()
-    if _sel == "격수":
-        role = "attacker"
-    elif _sel == "쩔캐":
-        role = "jjeol"
-    else:
-        role = "healer"
-    nick = nick_edit.text().strip()
-    _save_last(nick, role)
-    return {"nick": nick, "role": role}
-
-
 def main():
+    # 2026-06-13 항목8: 시작 시 닉네임/역할 선택 다이얼로그 제거 →
+    #   GUI 메인창의 닉네임 필드 + 역할 라디오에서 직접 설정.
+    #   직전 세션 값(.oldbaram_session.json)을 필드/라디오에 복원만 한다.
     cfg = load_cfg()
     app = QtWidgets.QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setStyleSheet(APP_QSS)
-    info = ask_session_info()
-    if info is None:
-        return
+    last = _load_last()
     from ..utils import logger_setup
-    logger_setup.set_session(info["nick"], info["role"])
+    logger_setup.set_session(last.get("nick", ""), last.get("role", ""))
     w = MainWindow(cfg)
-    # 시작 다이얼로그에서 고른 역할로 초기화 (라디오 토글 → self.role 반영).
-    # 쩔캐는 내부 role="healer" + jjeol 플래그 (rb_jjeol 라디오).
+    # 직전 역할 복원 (라디오 토글 → self.role 반영). 쩔캐=healer+jjeol.
     try:
-        if info["role"] == "attacker":
+        _role = last.get("role", "")
+        if _role == "attacker":
             w.rb_attacker.setChecked(True)
-        elif info["role"] == "jjeol" and hasattr(w, "rb_jjeol"):
+        elif _role == "jjeol" and hasattr(w, "rb_jjeol"):
             w.rb_jjeol.setChecked(True)
         else:
             w.rb_healer.setChecked(True)
     except Exception:
         pass
-    w._session_nick = info["nick"]
+    # 직전 닉네임을 메인창 닉 필드에 복원.
+    try:
+        if hasattr(w, "nick_edit"):
+            w.nick_edit.setText(str(last.get("nick", "") or ""))
+    except Exception:
+        pass
+    w._session_nick = str(last.get("nick", "") or "")
     w.show()
     sys.exit(app.exec_())
 
