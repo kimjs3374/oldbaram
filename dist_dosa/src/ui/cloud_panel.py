@@ -89,10 +89,20 @@ def _upload_maps(mw):
 
 
 def auto_upload_maps(mw) -> None:
-    """정지 버튼 등에서 조용히 호출 (실패 무시). 반환 key 또는 None."""
+    """정지 버튼 등에서 조용히 호출 (실패 무시). 반환 key 또는 None.
+
+    2026-06-13 진단: maps 미업로드 원인 추적용 로그(로그파일에 [MAPS-UPLOAD]).
+    """
+    import logging
+    _lg = logging.getLogger(getattr(mw, "role", "healer") or "healer")
     try:
-        return _upload_maps(mw)
-    except Exception:
+        exists = _MAPS_DIR.is_dir()
+        n = len(list(_MAPS_DIR.glob("*.json"))) if exists else 0
+        key = _upload_maps(mw)
+        _lg.info(f"[MAPS-UPLOAD] dir_exists={exists} files={n} key={key}")
+        return key
+    except Exception as e:  # noqa: BLE001
+        _lg.warning(f"[MAPS-UPLOAD] 실패: {e}")
         return None
 
 
