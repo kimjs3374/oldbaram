@@ -3491,8 +3491,10 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         import time as _t
         now = _t.time()
-        next_y = int(snap.get("next_y", 0) or 0)
         cur_y = int(snap.get("cur_y", 0) or 0)
+        # §8 fix 2026-06-13: x굴 시전이면 x-1(현재굴)에서 알림 → 시전굴=cur_y+1.
+        # (기존 hunt_nav next_y 는 순서 역순 등으로 3굴부터 뜨던 오류)
+        target = cur_y + 1
         if not hasattr(self, "_jipok_alert_enter"):
             self._jipok_alert_enter = {}
         for idx, d in list(self._healer_cooldowns.items()):
@@ -3513,10 +3515,10 @@ class MainWindow(QtWidgets.QMainWindow):
                         key, f"{cur_y}굴 {nick} 지폭지술 시전가능", 1.5)
                 else:
                     self._alert_overlay.drop_countdown(key)
-            elif next_y in maps and 0 <= cj < 20:
+            elif target in maps and 0 <= cj < 20:
                 self._jipok_alert_enter.pop(idx, None)
                 self._alert_overlay.push_countdown(
-                    key, f"{next_y}굴 {nick} 지폭지술 시전가능", 1.5)
+                    key, f"{target}굴 {nick} 지폭지술 시전가능", 1.5)
             else:
                 self._jipok_alert_enter.pop(idx, None)
                 self._alert_overlay.drop_countdown(key)

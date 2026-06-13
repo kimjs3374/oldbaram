@@ -59,10 +59,9 @@ def _parlyuk_approach_ok(ctx: dict, maps_getter) -> bool:
         maps = None
     if not maps:
         return True  # 미지정 = 접근 게이트 없음
-    try:
-        return int(ctx.get("atk_dist", 999)) <= 1
-    except Exception:
-        return True
+    # §4 fix 2026-06-13: 추종 target-offset 때문에 격수 직접 dist 는 항상 offset
+    # (~4)이라 dist≤1 불가 → '추종 정지(_follow_parked)=더 못 감=접근 완료'로 판정.
+    return bool(ctx.get("follow_parked", False))
 
 
 # NumPad0~9 VK 코드 (0x60 ~ 0x69). blueprints 기본 VK 지정용.

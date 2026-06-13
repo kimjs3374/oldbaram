@@ -1291,6 +1291,11 @@ class HealerWorker(QtCore.QThread):
                         ctx["atk_dist"] = 999
                 except Exception:
                     ctx["atk_dist"] = 999
+                # §4 fix 2026-06-13: 접근 완료 = 추종 정지(_follow_parked).
+                # 추종이 target-offset(격수 머리 위)이라 격수 직접 dist 는 항상
+                # offset(~4) → dist≤1 영영 불가로 파력 미시전. '더 못 감=접근완료'로.
+                ctx["follow_parked"] = bool(
+                    getattr(_worker_self, "_follow_parked", False))
                 # §6: 쩔캐(현인) 지폭 준비됨이면 파력무참 스킵 (격수가 중계).
                 ctx["jjeol_jipok_ready"] = (
                     bool(getattr(atk, "jjeol_jipok_ready", False))
