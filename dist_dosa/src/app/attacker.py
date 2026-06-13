@@ -540,6 +540,15 @@ class Attacker:
                 mp_pct=_mp_pct,
             )
 
+            # 진단(2026-06-13): 격수 atk_key 송신 확인 (5s throttle, 키 눌릴때만).
+            # attacker 로그에 [ATK-KEY-TX] 보이면 격수 v66+ & 방향키 감지 정상.
+            if st.atk_key != "-":
+                _akt = time.time()
+                if _akt - getattr(self, "_atk_key_log_ts", 0.0) > 5.0:
+                    self._atk_key_log_ts = _akt
+                    self.log(f"[ATK-KEY-TX] {st.atk_key} at ({st.x},{st.y}) "
+                             f"hwnd={self._hwnd} fg={fg_ok}")
+
             if frame_i % every == 0 and fg_ok:
                 # 2026-04-22: AsyncOcr — submit 은 ≈0ms, latest 는 백그라운드
                 # 최근 결과 (아직 없으면 None). 첫 프레임만 None 스킵.

@@ -325,6 +325,14 @@ class Follower:
         축 변화로만 판정(부호 무관) → U/D 좌표축 부호 불확실 회피.
         """
         key = getattr(s, "atk_key", "-")
+        # 진단(2026-06-13): 격수 atk_key 수신 흔적 (5s throttle). healer 로그에
+        # [ATK-KEY-RX] 가 보이면 격수 송신+힐러 수신 OK → 누적 로직 점검.
+        # 안 보이면 격수 atk_key='-' (격수 미업데이트 or detect 게이트 막힘).
+        if key in ("L", "R", "U", "D") and self.log is not None \
+                and now - getattr(self, "_atk_key_log_ts", 0.0) > 5.0:
+            self._atk_key_log_ts = now
+            self.log.debug(f"[ATK-KEY-RX] {key} atk=({s.x},{s.y}) "
+                           f"map={s.map_name!r} valid={s.coord_valid}")
         if (not s.map_name or key not in ("L", "R", "U", "D")
                 or not s.coord_valid):
             self._atk_try = None
