@@ -3278,6 +3278,24 @@ class HealerWorker(QtCore.QThread):
         dur = now - self._run_start_ts
         if dur < 0.8:
             return want, reason
+        # §2 S3 2026-06-13: STUCK 확정 → 수집 maps A* 우회 먼저 시도.
+        # walk(검증 통행로) + blocked(학습 벽) + peers(다른 캐릭) 회피한 최적
+        # 우회로의 첫 방향이 막힌 want 와 다르면 채택. 데이터 부족/없으면 직교.
+        try:
+            _grid = getattr(fol, "_grid", None)
+            if (_grid is not None and atk is not None
+                    and bool(getattr(atk, "coord_valid", False))
+                    and self.healer_map):
+                _adir = _grid.route_next_dir(
+                    self.healer_map, (int(hx), int(hy)),
+                    (int(atk.x), int(atk.y)), self._parse_peers(atk))
+                if _adir and _adir != want:
+                    self.log.info(
+                        f"[STUCK-ASTAR] {want}→{_adir} h=({hx},{hy}) "
+                        f"goal=({atk.x},{atk.y}) maps 우회")
+                    return _adir, f"STUCK-ASTAR {want}→{_adir}"
+        except Exception:
+            pass
         # 직교축 1차/2차 결정: X축 막힘 → Y축, Y축 막힘 → X축
         a_valid = bool(atk.coord_valid)
         if want in ("L", "R"):

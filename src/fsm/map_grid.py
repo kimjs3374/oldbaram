@@ -159,6 +159,23 @@ class MapGrid:
                         cur["block"] += int(tb.get("block", 0))
             s["dirty"] = True
 
+    def route_next_dir(self, map_name, start, goal, avoid=None):
+        """§2 S3: 수집된 maps(walk/blocked)로 start→goal A* 첫 방향.
+
+        avoid=peers(다른 캐릭 칸). 데이터 부족/경로 없으면 None(호출측 fallback).
+        """
+        from .map_route import astar_next_dir
+        name = canon_map_name(map_name)
+        s = self._maps.get(name)
+        if s is None:
+            return None
+        walk = {k: c["walk"] for k, c in s["cells"].items()
+                if c.get("walk", 0) >= 1}
+        if not walk:
+            return None
+        blocked = {k: dict(v) for k, v in s["blocked"].items()}
+        return astar_next_dir(walk, blocked, start, goal, avoid)
+
     # --- 영속화 ---
     def flush(self) -> int:
         """dirty 맵만 디스크에 저장. 저장한 맵 수 반환. (메모리가 누적본)."""
