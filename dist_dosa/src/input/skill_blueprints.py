@@ -345,7 +345,8 @@ def default_skills(parlyuk_offset_sec: float = 0.0,
         "파력무참", int(vk_map.get("파력무참", _VK_NUMPAD8)),
         5.0, lambda c: (not _buff_present(c, "파력무참")
                         and _parlyuk_map_ok(c, parlyuk_maps_getter)
-                        and _parlyuk_approach_ok(c, parlyuk_maps_getter)),
+                        and _parlyuk_approach_ok(c, parlyuk_maps_getter)
+                        and not c.get("jjeol_jipok_ready", False)),
         offset_sec=parlyuk_offset_sec,
         verify_kind="buff",
         verify_target="파력무참",

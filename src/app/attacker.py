@@ -108,6 +108,7 @@ class Attacker:
         # F2 (2026-06-12): 쩔캐(현인) 지폭지술 트리거. 몹이 충분히 모이면 격수가
         # F2 → State.jipok_seq 증가 송신 → 쩔캐가 증가 감지 시 지폭지술 시퀀스.
         self._jipok_seq = 0
+        self._jjeol_jipok_ready = False  # §6 쩔캐 지폭 준비됨 → 파력 스킵 중계
         # 좌표급변(=맵전환, 워프 거의 없음) 감지 시 맵이름 OCR 갱신까지
         # map_change_pending 강제 ON → 격수 맵OCR(RapidOCR) 지연을 좌표(0.01초)로 흡수.
         self._map_chg_until = 0.0
@@ -224,6 +225,10 @@ class Attacker:
             self.hunt_nav.set_x_override(int(x))
         except Exception:
             pass
+
+    def set_jjeol_jipok_ready(self, ready: bool) -> None:
+        """§6: 쩔캐(현인) 지폭 준비 여부를 State 송신에 반영(파력 스킵 중계)."""
+        self._jjeol_jipok_ready = bool(ready)
 
     def set_xp_region(self, x: int, y: int, w: int, h: int) -> None:
         try:
@@ -536,6 +541,7 @@ class Attacker:
                 map_change_pending=pending_now,
                 reanchor_seq=self._reanchor_seq,
                 jipok_seq=self._jipok_seq,
+                jjeol_jipok_ready=self._jjeol_jipok_ready,
                 hp_pct=_hp_pct,
                 mp_pct=_mp_pct,
             )

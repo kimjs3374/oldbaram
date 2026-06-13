@@ -1290,6 +1290,10 @@ class HealerWorker(QtCore.QThread):
                         ctx["atk_dist"] = 999
                 except Exception:
                     ctx["atk_dist"] = 999
+                # §6: 쩔캐(현인) 지폭 준비됨이면 파력무참 스킵 (격수가 중계).
+                ctx["jjeol_jipok_ready"] = (
+                    bool(getattr(atk, "jjeol_jipok_ready", False))
+                    if atk is not None else False)
                 return ctx
     
             # 블록A/B 훅 — 자힐/자가부활 pre/post.

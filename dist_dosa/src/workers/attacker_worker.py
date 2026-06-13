@@ -345,6 +345,19 @@ class AttackerWorker(QtCore.QThread):
                                 last_map[key] = now_s
                         except Exception:
                             pass
+                        # §6: 쩔캐(현인) 지폭 준비됨(cd_jipok==0) → 격수가 힐러에
+                        # 중계(State.jjeol_jipok_ready). 힐러는 파력무참 스킵.
+                        try:
+                            if not hasattr(self, "_jipok_ready_by_idx"):
+                                self._jipok_ready_by_idx = {}
+                            _ri = int(getattr(rep, "src_idx", 0))
+                            self._jipok_ready_by_idx[_ri] = (
+                                int(getattr(rep, "cd_jipok", -1)) == 0)
+                            if hasattr(self._app, "set_jjeol_jipok_ready"):
+                                self._app.set_jjeol_jipok_ready(
+                                    any(self._jipok_ready_by_idx.values()))
+                        except Exception:
+                            pass
                         self.cooldown_update.emit({
                             "src_idx": row_idx,
                             "reported_idx": int(getattr(rep, "src_idx", 0)),
