@@ -7,6 +7,7 @@ from collections import deque
 from typing import Optional
 
 from ..net.protocol import State
+from .map_grid import MapGrid
 from .state import FsmState
 from .tab_confirm import TabConfirm
 
@@ -170,6 +171,13 @@ class Follower:
                                 / "portals_v2.json")
         self._portal_db: dict = {}  # "from|to" → {coords:[[x,y]..], dir, n}
         self._load_portal_db()
+        # 맵 데이터 grid (S0 실시간 수집): 좌표 walk/tab + STUCK blocked 영구
+        # 누적 → maps/<맵>.json (맵 데이터화 로드맵.md §6). add_* 는 메모리
+        # dict O(1), flush 만 디스크라 30초 throttle 로 핫패스 IO 회피.
+        self._grid = MapGrid(pathlib.Path(__file__).resolve().parents[2]
+                             / "maps")
+        self._grid_flush_interval: float = 30.0
+        self._grid_last_flush: float = time.time()
         # EXIT-FALLBACK (2026-06-10): exit_dir 오판/출구좌표 UDP누락 안전망.
         # map_neq 지속 + 힐러 좌표 8초 정체(정상 전환 실측 최대 5.3s + 여유)
         # → exit_dir 교체 (반대→직교 순환). healer-120 (7) 14초 정체 사고 대응.
@@ -303,6 +311,14 @@ class Follower:
         mid_y = ys[len(ys) // 2]
         return (mid_x, mid_y), str(e.get("dir", "-"))
 
+    def note_blocked(self, map_name: str, x: int, y: int, d: str) -> None:
+        """STUCK 확정 벽(좌표+방향)을 맵 grid 에 영구 누적.
+
+        healer_worker._decide_move 의 STUCK-RESET(3.5s 초과 = 진짜 벽) 지점에서
+        호출. blacklist 는 휘발 TTL, grid 는 영구 누적(장애물 1차 증거).
+        """
+        self._grid.add_blocked(map_name, x, y, d)
+
     def note_healer_map(self, map_name: str, healer_coord: Optional[tuple] = None):
         """힐러 자신의 맵 이름 주입 (OCR 결과). 맵 전환 3단계 판정용.
 
@@ -338,6 +354,15 @@ class Follower:
                             f"thr={self._healer_coord_jump_threshold} "
                             f"→ MAP-SYNC hold {self._map_sync_duration*1000:.0f}ms"
                         )
+            # 맵 grid 수집: 힐러 walk (좌표 변할 때만, OCR 점프는 제외).
+            if prev_hc is None:
+                self._grid.add_walk(map_name, healer_coord[0], healer_coord[1])
+            elif healer_coord != prev_hc:
+                _dj = (abs(healer_coord[0] - prev_hc[0])
+                       + abs(healer_coord[1] - prev_hc[1]))
+                if _dj <= self._healer_coord_jump_threshold:
+                    self._grid.add_walk(map_name, healer_coord[0],
+                                        healer_coord[1])
             self._healer_last_coord_by_map[map_name] = healer_coord
         if not map_name or map_name == self._healer_map:
             # 같은 맵이면 reversion 카운터 리셋.
@@ -451,6 +476,13 @@ class Follower:
 
     def update(self, s: Optional[State]) -> FsmState:
         now = time.time()
+        # 맵 grid 주기 flush (dirty 맵만 디스크 저장). 핫패스 IO 회피용 throttle.
+        if now - self._grid_last_flush >= self._grid_flush_interval:
+            self._grid_last_flush = now
+            try:
+                self._grid.flush()
+            except Exception:
+                pass
         if s is None:
             s = State()  # 빈 상태로라도 계속 평가 (disconnected 판정)
 
@@ -670,6 +702,10 @@ class Follower:
                         self._map_trail[s.map_name] = trail
                     if not trail or trail[-1] != coord:
                         trail.append(coord)
+                        # 맵 grid 수집: 격수 walk(+ red_tab 이면 사냥 스팟).
+                        # trail dedup 안이라 좌표 변할 때만 1회 (정지 중 중복 X).
+                        self._grid.add_walk(s.map_name, coord[0], coord[1],
+                                            tab=bool(getattr(s, "red_tab", False)))
                         # 전역 trail에도 (map, x, y) 태그 포함 push.
                         # 태그 전이 감지용. 같은 (map, coord) 중복 회피.
                         tagged = (s.map_name, coord[0], coord[1])

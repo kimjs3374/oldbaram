@@ -3223,6 +3223,11 @@ class HealerWorker(QtCore.QThread):
         # 3.5s 초과 → release + 상태 리셋 + blacklist 등록.
         # 다음 B3 결정 시 해당 방향 회피 → 같은 벽 무한 재시도 방지.
         self._blacklist_add(self.healer_map, h, want)
+        # 맵 grid 영구 누적: STUCK 확정 벽(좌표+방향). blacklist=휘발 TTL, grid=영구.
+        try:
+            fol.note_blocked(self.healer_map, h[0], h[1], want)
+        except Exception:
+            pass
         self._run_want = None
         self._run_start_ts = 0.0
         self._run_start_pos = None

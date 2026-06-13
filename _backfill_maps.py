@@ -26,6 +26,10 @@ ROOT = pathlib.Path(__file__).resolve().parent
 LOG_DIRS = [ROOT / "logs", ROOT / "dist_dosa" / "logs_cloud"]
 OUT_DIR = ROOT / "maps"
 
+# 맵명 괄호보정은 런타임 수집기와 동일 정본 사용 (맵 데이터화 로드맵.md §6.1).
+sys.path.insert(0, str(ROOT / "dist_dosa"))
+from src.fsm.map_grid import canon_map_name  # noqa: E402
+
 # --- 라인 패턴 (attacker: 공백없는 coord, healer: 공백있는 coord 둘 다 커버) ---
 RE_ATK = re.compile(
     r"\[attacker\].*?map='([^']*)'.*?coord=\((\d+),\s*(\d+)\)"
@@ -49,21 +53,7 @@ def _new_map():
     }
 
 
-def _clean_map_name(m: str) -> str:
-    """맵명 canonical 정규화.
-
-    이 로그들(6/9~10)은 RapidOCR(v42, 6/11) 이전이라 닫는 괄호 ')' 를 자주
-    떨어뜨려 같은 맵이 '선비족3-2(6' / '선비족3-2(6)' 로 파편화된다.
-    여는 괄호 수 > 닫는 괄호 수면 부족분을 ')' 로 보정해 합친다.
-    """
-    m = m.strip().rstrip(" .,")
-    if not m:
-        return ""
-    nopen = m.count("(")
-    nclose = m.count(")")
-    if nopen > nclose:
-        m = m + ")" * (nopen - nclose)
-    return m
+_clean_map_name = canon_map_name  # 정본은 map_grid.canon_map_name (단일화)
 
 
 def main() -> None:
