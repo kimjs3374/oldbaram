@@ -358,6 +358,18 @@ class AttackerWorker(QtCore.QThread):
                                     any(self._jipok_ready_by_idx.values()))
                         except Exception:
                             pass
+                        # §1: 힐러 좌표 → Attacker → State.peers broadcast(충돌 회피).
+                        try:
+                            if hasattr(self._app, "set_peer_coord"):
+                                _hm = str(getattr(rep, "healer_map", "") or "")
+                                self._app.set_peer_coord(
+                                    int(getattr(rep, "src_idx", 0)), _hm,
+                                    int(getattr(rep, "healer_x", 0)),
+                                    int(getattr(rep, "healer_y", 0)),
+                                    bool(_hm),
+                                )
+                        except Exception:
+                            pass
                         self.cooldown_update.emit({
                             "src_idx": row_idx,
                             "reported_idx": int(getattr(rep, "src_idx", 0)),

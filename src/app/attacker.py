@@ -6,6 +6,7 @@
 활성화. 힐러와 동일 학습 가중치(cfg.vision.weights) 공유.
 """
 import argparse
+import json
 import signal
 import time
 from collections import deque
@@ -109,6 +110,7 @@ class Attacker:
         # F2 → State.jipok_seq 증가 송신 → 쩔캐가 증가 감지 시 지폭지술 시퀀스.
         self._jipok_seq = 0
         self._jjeol_jipok_ready = False  # §6 쩔캐 지폭 준비됨 → 파력 스킵 중계
+        self._peer_coords = {}           # §1 idx → (map, x, y). 충돌 회피 broadcast
         # 좌표급변(=맵전환, 워프 거의 없음) 감지 시 맵이름 OCR 갱신까지
         # map_change_pending 강제 ON → 격수 맵OCR(RapidOCR) 지연을 좌표(0.01초)로 흡수.
         self._map_chg_until = 0.0
@@ -229,6 +231,20 @@ class Attacker:
     def set_jjeol_jipok_ready(self, ready: bool) -> None:
         """§6: 쩔캐(현인) 지폭 준비 여부를 State 송신에 반영(파력 스킵 중계)."""
         self._jjeol_jipok_ready = bool(ready)
+
+    def set_peer_coord(self, idx, map_name, x, y, valid: bool) -> None:
+        """§1: 힐러/쩔캐 좌표를 모아 State.peers 로 broadcast(충돌 회피).
+
+        valid=False(좌표 미관측)면 제거 → 옛 좌표로 잘못 회피하는 것 방지.
+        """
+        try:
+            i = int(idx)
+            if valid:
+                self._peer_coords[i] = (str(map_name or ""), int(x), int(y))
+            else:
+                self._peer_coords.pop(i, None)
+        except Exception:
+            pass
 
     def set_xp_region(self, x: int, y: int, w: int, h: int) -> None:
         try:
@@ -542,6 +558,10 @@ class Attacker:
                 reanchor_seq=self._reanchor_seq,
                 jipok_seq=self._jipok_seq,
                 jjeol_jipok_ready=self._jjeol_jipok_ready,
+                peers=json.dumps([
+                    [i, m, x, y]
+                    for i, (m, x, y) in self._peer_coords.items()
+                ]),
                 hp_pct=_hp_pct,
                 mp_pct=_mp_pct,
             )

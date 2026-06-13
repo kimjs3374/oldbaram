@@ -1,5 +1,6 @@
 from __future__ import annotations
 import ctypes
+import json
 import logging
 import os
 import re
@@ -3094,6 +3095,47 @@ class HealerWorker(QtCore.QThread):
         except Exception:
             return False
 
+    _PEER_DXY = {"L": (-1, 0), "R": (1, 0), "U": (0, 1), "D": (0, -1)}
+
+    def _parse_peers(self, atk) -> set:
+        """§1: State.peers 에서 같은맵 다른 캐릭 좌표 집합(자기 idx 제외)."""
+        try:
+            raw = json.loads(getattr(atk, "peers", "") or "[]")
+        except Exception:
+            return set()
+        my_idx = int(getattr(self.cfg.net, "healer_idx", -1))
+        hm = self.healer_map
+        out = set()
+        for e in raw:
+            try:
+                if len(e) >= 4 and int(e[0]) != my_idx and str(e[1]) == hm:
+                    out.add((int(e[2]), int(e[3])))
+            except Exception:
+                pass
+        return out
+
+    def _avoid_peer_collision(self, want, reason, atk):
+        """§1: want 다음칸에 다른 캐릭 있으면(겹침 불가=일시 장애물) 직교 회피.
+
+        좌표축: L=x-, R=x+, U=y+, D=y-. 직교 둘 다 막히면 대기('-').
+        (S3 후속: maps walk/blocked + peers 로 A* 우회로 확장)
+        """
+        if want not in self._PEER_DXY or self.healer_coord is None:
+            return want, reason
+        peers = self._parse_peers(atk)
+        if not peers:
+            return want, reason
+        hx, hy = self.healer_coord
+        dx, dy = self._PEER_DXY[want]
+        if (hx + dx, hy + dy) not in peers:
+            return want, reason
+        ortho = (["U", "D"] if want in ("L", "R") else ["L", "R"])
+        for o in ortho:
+            ox, oy = self._PEER_DXY[o]
+            if (hx + ox, hy + oy) not in peers:
+                return o, f"PEER-AVOID {want}→{o} (캐릭 충돌 회피)"
+        return "-", "PEER-WAIT (사방 캐릭)"
+
     def _decide_move(self, atk, fol, map_neq: bool) -> tuple:
         """B안 래퍼: 원 decision 결과에 STUCK 감지/언스턱 오버라이드 적용."""
         # 재고정 시퀀스 1~3단계(self-target/토글OFF/clean확인) 동안 방향키 중단
@@ -3105,7 +3147,8 @@ class HealerWorker(QtCore.QThread):
         if self._jipok_hold_move:
             return "-", "JIPOK-HOLD 방향키 중단 (지폭지술 시퀀스 중)"
         want, reason = self._decide_move_raw(atk, fol, map_neq)
-        return self._apply_stuck_filter(want, reason, atk, fol, map_neq)
+        _w, _r = self._apply_stuck_filter(want, reason, atk, fol, map_neq)
+        return self._avoid_peer_collision(_w, _r, atk)
 
 
     def _blacklist_add(self, map_name: str, coord, direction: str) -> None:

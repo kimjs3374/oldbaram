@@ -46,6 +46,10 @@ class State:
     # 격수가 쩔캐 cd_jipok==0(준비) 수신 시 True 송신. 지폭=전체마법 한방이라
     # 피해2배 범위버프(파력무참) 불필요. 힐러 파력 predicate 가 이 값으로 차단.
     jjeol_jipok_ready: bool = False
+    # 2026-06-13(§1): 다른 힐러/쩔캐 좌표 JSON "[[idx,map,x,y],...]".
+    # 격수가 수신한 힐러 좌표들을 broadcast → 각 쩔캐가 서로 위치 알아 충돌
+    # (같은 칸 겹침 불가) 회피. 캐릭은 겹칠 수 없어 다른 캐릭 칸 = 일시 장애물.
+    peers: str = ""
     # 격수 HP/MP 바율 (0~100 정수 %). -1 = OCR 영역 미지정/미관측.
     # 힐러 SkillScheduler 가 격수부활(hp_pct==0) 트리거로 사용.
     hp_pct: int = -1
