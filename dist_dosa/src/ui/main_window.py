@@ -1262,12 +1262,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if not (0 <= idx < len(self._healer_rows)):
             return
         row = self._healer_rows[idx]
-        nick = str(d.get("nickname", "") or "").strip()
-        locked = str(d.get("_locked_nick", "") or "").strip()
-        if nick:
-            if not locked:
-                d["_locked_nick"] = nick
-                row["lbl"].setText(nick)
+        # 닉 표시: GUI 직접입력 우선(2026-06-15). 입력 있으면 OCR 로 안 덮음.
+        row["lbl"].setText(self._effective_nick(idx, d))
         # 맵/좌표/상태 라벨 갱신.
         hmap = str(d.get("healer_map", "") or "").strip()
         row["lbl_map"].setText(f"맵: {hmap if hmap else '-'}")
@@ -3480,6 +3476,24 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             pass
 
+    def _effective_nick(self, idx: int, d: dict = None) -> str:
+        """닉 표시 우선순위(2026-06-15 사용자): GUI 직접입력(net_dlg) > 수신 OCR
+        닉 > 기본. OCR 은 미입력 백업용일 뿐 흔들려도 GUI 입력이 우선."""
+        try:
+            if hasattr(self, "net_dlg") and hasattr(self.net_dlg, "get_nicks"):
+                nl = self.net_dlg.get_nicks()
+                if 0 <= idx < len(nl):
+                    ov = str(nl[idx] or "").strip()
+                    if ov:
+                        return ov
+        except Exception:
+            pass
+        if d is not None:
+            n = str(d.get("nickname", "") or "").strip()
+            if n:
+                return n
+        return f"힐러{idx + 1}"
+
     def _tick_jipok_next_alert(self, snap: dict) -> None:
         """§8 2026-06-13: 지폭 시전굴 직전굴에서 격수 알림.
 
@@ -3507,7 +3521,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._alert_overlay.drop_countdown(key)
                 self._jipok_alert_enter.pop(idx, None)
                 continue
-            nick = str(d.get("nickname", "") or "").strip() or f"힐러{idx + 1}"
+            nick = self._effective_nick(idx, d)
             if cur_z in maps:
                 # 시전층 진입 → 3초만 더 표시 후 해제.
                 ent = self._jipok_alert_enter.setdefault(idx, now)
