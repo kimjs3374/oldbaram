@@ -351,10 +351,12 @@ class AttackerWorker(QtCore.QThread):
                             if not hasattr(self, "_jipok_ready_by_idx"):
                                 self._jipok_ready_by_idx = {}
                             _ri = int(getattr(rep, "src_idx", 0))
-                            # 2026-06-15 사용자: 지폭 쿨 20초 이하면 곧 시전 →
-                            # 파력 스킵(다음 조건층에서). cd_jipok -1=미해당.
+                            # 2026-06-15 사용자: 지폭 쿨 20초 이하면 곧 재시전 →
+                            # 파력 스킵. 단 0(준비/대기)은 제외 — 첫 시전 전 영구
+                            # 0이라 파력 영구 스킵되는 버그 + 준비상태는 쩔캐가
+                            # 쏠지 미정. 쿨 도는 중(1~20=최근 쐈고 곧 또)만 스킵.
                             _cj = int(getattr(rep, "cd_jipok", -1))
-                            self._jipok_ready_by_idx[_ri] = (0 <= _cj <= 20)
+                            self._jipok_ready_by_idx[_ri] = (1 <= _cj <= 20)
                             if hasattr(self._app, "set_jjeol_jipok_ready"):
                                 self._app.set_jjeol_jipok_ready(
                                     any(self._jipok_ready_by_idx.values()))

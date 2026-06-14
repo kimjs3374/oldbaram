@@ -3643,8 +3643,10 @@ class HealerWorker(QtCore.QThread):
             # 이동 전까지 정지 유지 → 격수 방향변화/OCR 미세흔들림에 안 따라가
             # "계속 돌아다님" 차단. 격수가 실제 tol 넘게 움직이면 추종 재개.
             if self._follow_parked and self._park_atk is not None:
+                # 2026-06-15 fix: park 유지 히스테리시스 — 진입 tol, 이탈 tol+1.
+                # 격수 미세이동(tol 경계)에 park 진입↔해제 떨림(-↔U 진동) 방지.
                 if (abs(ax - self._park_atk[0])
-                        + abs(ay - self._park_atk[1])) <= tol:
+                        + abs(ay - self._park_atk[1])) <= tol + 1:
                     return "-", (
                         f"B3-PARK 격수정지 대기 a=({ax},{ay}) "
                         f"park={self._park_atk} tol={tol}"
