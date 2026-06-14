@@ -19,8 +19,10 @@ from typing import Callable, Optional, Union
 
 from .numlock_cycle import VK_NUMPAD7, VK_NUMPAD8
 
-# 파력무참 시전 굴 판정: 맵명 끝 '(N)' 의 N 추출 ('선비족2-3(5)' → 5).
-_PARLYUK_SUB_RE = re.compile(r"\((\d+)\)\s*$")
+# 파력무참 시전 굴 판정: 맵명 '선비족{x}-{y}({z})' 의 **굴 번호 y** 추출.
+# 2026-06-15 fix: 기존 정규식이 끝 '(z)'=층(1~7)을 잡아 모든 굴의 5/6층에서
+# 발사되던 버그. 굴(y)은 1~5. 예 '선비족2-3(5)' → y=3 (끝 z=5 아님).
+_PARLYUK_SUB_RE = re.compile(r"선비족\d+-(\d+)\(")
 
 
 def _parlyuk_map_ok(ctx: dict, maps_getter) -> bool:
@@ -59,9 +61,12 @@ def _parlyuk_approach_ok(ctx: dict, maps_getter) -> bool:
         maps = None
     if not maps:
         return True  # 미지정 = 접근 게이트 없음
-    # §4 fix 2026-06-13: 추종 target-offset 때문에 격수 직접 dist 는 항상 offset
-    # (~4)이라 dist≤1 불가 → '추종 정지(_follow_parked)=더 못 감=접근 완료'로 판정.
-    return bool(ctx.get("follow_parked", False))
+    # 2026-06-15 사용자: 시전조건 = 격수와 맨해튼 dist ≤ 2. 추종 tol=1(밀착)로
+    # 접근하면 정지 시 dist 0~1 → 충족. (명시적 dist 게이트)
+    try:
+        return int(ctx.get("atk_dist", 999)) <= 2
+    except Exception:
+        return True
 
 
 # NumPad0~9 VK 코드 (0x60 ~ 0x69). blueprints 기본 VK 지정용.

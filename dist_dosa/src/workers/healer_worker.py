@@ -761,11 +761,15 @@ class HealerWorker(QtCore.QThread):
         self.log.info(f"[JIPOK-MAPS] 시전 굴 설정 → {sorted(s) or '전체'}")
 
     def _jipok_map_ok(self) -> bool:
-        """현재 힐러 맵이 지폭지술 허용 굴인지. maps 비면 전체 허용."""
+        """현재 힐러 맵이 지폭지술 허용 굴인지. maps 비면 전체 허용.
+
+        2026-06-15 fix: 맵명 '선비족{x}-{y}({z})' 의 **굴 번호 y** 기준(끝 (z)=층
+        아님). 기존 끝괄호 정규식이 모든 굴의 5/6층에서 지폭 발사하던 버그.
+        """
         if not self._jipok_maps:
             return True
         m = str(getattr(self, "healer_map", "") or "")
-        mt = re.search(r"\((\d+)\)\s*$", m)
+        mt = re.search(r"선비족\d+-(\d+)\(", m)
         if mt is None:
             return False
         try:
@@ -1903,7 +1907,7 @@ class HealerWorker(QtCore.QThread):
                         if not self._parlyuk_buff_active:
                             self._parlyuk_buff_active = True
                             self._coord_tol_saved = int(self.coord_tol)
-                            self.coord_tol = 1
+                            self.coord_tol = 1  # 따라가는 톨=1 (밀착 추종)
                             self.log.info(
                                 f"[PARLYUK-TOL] "
                                 f"{'버프 감지' if _parlyuk_val > 0 else '접근 굴'} "
@@ -2527,17 +2531,20 @@ class HealerWorker(QtCore.QThread):
                             self.log.info(f"[KEY] release_all ({reason})")
                         current_dir = "-"
                 else:
-                    # 스킬 시전 직후 재hold: 같은 방향이어도 강제 재발송.
+                    # 스킬 시전 직후 재hold. 2026-06-15 fix: 같은 방향이면 이미
+                    # 눌려있으므로 release/hold 생략(스킬 VK는 별개 키 → 이동키 안
+                    # 끊김). 방향 바뀐 경우만 재발송. (답답함 주범, 5381회 release)
                     if self._need_rehold:
                         self._need_rehold = False
                         if want in ("L", "R", "U", "D"):
-                            keys.release_all()
-                            keys.hold(want)
-                            self.log.info(
-                                f"[KEY-REHOLD-SKILL] {want} "
-                                f"(재hold reason={reason!r})"
-                            )
-                            current_dir = want
+                            if want != current_dir:
+                                keys.release_all()
+                                keys.hold(want)
+                                self.log.info(
+                                    f"[KEY-REHOLD-SKILL] {want} "
+                                    f"(재hold reason={reason!r})"
+                                )
+                                current_dir = want
                             self._last_hold_ts = now_sec
                         else:
                             # want=- 상태였으면 그냥 패스 (release_all로 이미 해제됨).
@@ -3092,7 +3099,8 @@ class HealerWorker(QtCore.QThread):
         """
         if not self._parlyuk_maps:
             return False
-        m = re.search(r"\((\d+)\)\s*$", self.healer_map or "")
+        # 2026-06-15 fix: 굴 번호 y (끝 (z)=층 아님).
+        m = re.search(r"선비족\d+-(\d+)\(", self.healer_map or "")
         if not m:
             return False
         try:
@@ -3665,7 +3673,22 @@ class HealerWorker(QtCore.QThread):
             # 주축/부축 후보 산출.
             x_dir = "R" if tdx > 0 else ("L" if tdx < 0 else None)
             y_dir = "D" if tdy > 0 else ("U" if tdy < 0 else None)
-            if abs(tdx) >= abs(tdy):
+            # 2026-06-15 fix: 대각 추종 지그재그(축 플립이 결정의 60%) 방지.
+            # 둘 다 이동 필요 시 직전 주축을 유지, 반대축이 2칸+ 더 멀 때만 전환
+            # (미세 우열 역전에 안 흔들림 → 사람처럼 한 축씩 정렬).
+            if x_dir and y_dir:
+                _prev = getattr(self, "_b3_primary_axis", None)
+                _diff = abs(tdx) - abs(tdy)
+                if _prev == "x" and _diff > -2:
+                    first, second = x_dir, y_dir
+                elif _prev == "y" and _diff < 2:
+                    first, second = y_dir, x_dir
+                elif abs(tdx) >= abs(tdy):
+                    first, second = x_dir, y_dir
+                else:
+                    first, second = y_dir, x_dir
+                self._b3_primary_axis = "x" if first == x_dir else "y"
+            elif abs(tdx) >= abs(tdy):
                 first, second = x_dir, y_dir
             else:
                 first, second = y_dir, x_dir

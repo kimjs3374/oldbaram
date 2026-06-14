@@ -3492,9 +3492,10 @@ class MainWindow(QtWidgets.QMainWindow):
         import time as _t
         now = _t.time()
         cur_y = int(snap.get("cur_y", 0) or 0)
-        # §8 fix 2026-06-13: x굴 시전이면 x-1(현재굴)에서 알림 → 시전굴=cur_y+1.
-        # (기존 hunt_nav next_y 는 순서 역순 등으로 3굴부터 뜨던 오류)
-        target = cur_y + 1
+        # 2026-06-15 fix: 시전굴 = 네비 다음굴(next_y, 굴 순서 회전 반영).
+        # cur_y+1 은 역순 순서를 무시. '3굴부터 뜨던' 진짜 원인은 굴게이트가
+        # 층(z)을 봐서 jipok_maps 가 오염된 것(별도 fix). 이제 next_y 가 정답.
+        target = int(snap.get("next_y", 0) or 0)
         if not hasattr(self, "_jipok_alert_enter"):
             self._jipok_alert_enter = {}
         for idx, d in list(self._healer_cooldowns.items()):

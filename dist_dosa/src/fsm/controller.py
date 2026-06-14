@@ -377,8 +377,16 @@ class Follower:
             # EXIT-FALLBACK 진행 추적: 힐러 좌표가 base 대비 맨해튼 2 이상
             # 움직이면 진행으로 간주 (1칸 제자리 진동은 무시) → 타이머 리셋.
             base = self._healer_coord_progress_base
-            if base is None or (abs(healer_coord[0] - base[0])
-                                + abs(healer_coord[1] - base[1])) >= 2:
+            _moved = (base is None or (abs(healer_coord[0] - base[0])
+                                       + abs(healer_coord[1] - base[1])) >= 2)
+            # 2026-06-15 fix: 벽 왕복((1,8)↔(1,11) 진동)을 '진행'으로 오인해
+            # EXIT-FALLBACK 8s 타이머를 무한 리셋하던 버그(전 세션 0회 발동, (7)
+            # 탈출 19s 방치). 최근 방문한 좌표로의 이동은 진행이 아님(왕복).
+            if not hasattr(self, "_progress_recent"):
+                self._progress_recent = deque(maxlen=8)
+            _revisit = healer_coord in self._progress_recent
+            self._progress_recent.append(healer_coord)
+            if _moved and not _revisit:
                 self._healer_coord_progress_base = healer_coord
                 self._healer_coord_progress_ts = now
             prev_hc = self._healer_last_coord_by_map.get(map_name)
