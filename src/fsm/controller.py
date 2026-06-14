@@ -185,7 +185,7 @@ class Follower:
         # EXIT-FALLBACK (2026-06-10): exit_dir 오판/출구좌표 UDP누락 안전망.
         # map_neq 지속 + 힐러 좌표 8초 정체(정상 전환 실측 최대 5.3s + 여유)
         # → exit_dir 교체 (반대→직교 순환). healer-120 (7) 14초 정체 사고 대응.
-        self._exit_fallback_sec: float = 8.0
+        self._exit_fallback_sec: float = 5.0  # 2026-06-15: 8→5 ((7) 19s 방치 단축)
         self._exit_fallback_n: int = 0
         self._healer_coord_progress_ts: float = time.time()
         self._healer_coord_progress_base: Optional[tuple] = None
@@ -259,6 +259,13 @@ class Follower:
                     shared = [c for c in cands if c in _bcands(qx, qy)]
                     if len(shared) == 1:
                         return (px, py), shared[0], i
+                    # 2026-06-15: 코너 모호(공유축 0/2+) 시 세로(U/D) 우선.
+                    # 포탈은 보통 진행 끝 수직(상/하단)이라 가로 진행방향이
+                    # 오판되기 쉬움 ((7)→허브 (3,0) 'L' 오학습). 가로 출구가
+                    # 명확하면(공유축 1개) 위에서 이미 보존. 틀리면 EXIT-FALLBACK.
+                    for _vd in ("U", "D"):
+                        if _vd in cands:
+                            return (px, py), _vd, i
                 dx, dy = px - qx, py - qy
                 if dx or dy:
                     pref = (("R" if dx > 0 else "L")
