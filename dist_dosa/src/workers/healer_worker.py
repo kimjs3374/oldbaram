@@ -761,15 +761,14 @@ class HealerWorker(QtCore.QThread):
         self.log.info(f"[JIPOK-MAPS] 시전 굴 설정 → {sorted(s) or '전체'}")
 
     def _jipok_map_ok(self) -> bool:
-        """현재 힐러 맵이 지폭지술 허용 굴인지. maps 비면 전체 허용.
+        """현재 힐러 맵이 지폭지술 허용 층인지. maps 비면 전체 허용.
 
-        2026-06-15 fix: 맵명 '선비족{x}-{y}({z})' 의 **굴 번호 y** 기준(끝 (z)=층
-        아님). 기존 끝괄호 정규식이 모든 굴의 5/6층에서 지폭 발사하던 버그.
+        사용자 설정 = 맵명 끝 '(z)' = 층(1~7) 기준.
         """
         if not self._jipok_maps:
             return True
         m = str(getattr(self, "healer_map", "") or "")
-        mt = re.search(r"선비족\d+-(\d+)\(", m)
+        mt = re.search(r"\((\d+)\)\s*$", m)
         if mt is None:
             return False
         try:
@@ -1900,10 +1899,12 @@ class HealerWorker(QtCore.QThread):
                         (getattr(_bf_latest, "skills", {}) or {})
                         .get("파력무참", -1)
                     )
-                    # §4 2026-06-13: 파력무참 접근 굴(지정+매칭)이면 버프 무관
-                    # tol=1 로 격수에 접근(dist≤1) 후 시전. 미지정 굴은 기존대로.
+                    # 파력무참 접근 층(지정+매칭)이면 tol=1 로 격수 접근 후 시전.
+                    # 2026-06-15 사용자: 추종거리(tol1) 변경은 파력 실제 시전 조건
+                    # 일 때만 — 지폭 스킵(쩔캐 지폭 20s 이하=곧 시전)이면 tol 안 바꿈.
                     _zone = self._parlyuk_zone_ok()
-                    if _parlyuk_val > 0 or _zone:
+                    _jjeol_skip = bool(getattr(atk, "jjeol_jipok_ready", False))
+                    if _parlyuk_val > 0 or (_zone and not _jjeol_skip):
                         if not self._parlyuk_buff_active:
                             self._parlyuk_buff_active = True
                             self._coord_tol_saved = int(self.coord_tol)
@@ -3099,8 +3100,8 @@ class HealerWorker(QtCore.QThread):
         """
         if not self._parlyuk_maps:
             return False
-        # 2026-06-15 fix: 굴 번호 y (끝 (z)=층 아님).
-        m = re.search(r"선비족\d+-(\d+)\(", self.healer_map or "")
+        # 사용자 설정 = 맵명 끝 '(z)' = 층 기준.
+        m = re.search(r"\((\d+)\)\s*$", self.healer_map or "")
         if not m:
             return False
         try:

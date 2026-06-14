@@ -3491,11 +3491,11 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         import time as _t
         now = _t.time()
-        cur_y = int(snap.get("cur_y", 0) or 0)
-        # 2026-06-15 fix: 시전굴 = 네비 다음굴(next_y, 굴 순서 회전 반영).
-        # cur_y+1 은 역순 순서를 무시. '3굴부터 뜨던' 진짜 원인은 굴게이트가
-        # 층(z)을 봐서 jipok_maps 가 오염된 것(별도 fix). 이제 next_y 가 정답.
-        target = int(snap.get("next_y", 0) or 0)
+        # 2026-06-15: 지폭 시전 = 층(z) 기준 (맵명 끝 (z), 1→7 순차).
+        # 현재 층 cur_z, 다음 시전층 = cur_z+1. jipok_maps 도 층 번호.
+        # 사용자: x층 직전(x-1층)에서 쿨 20초 이하면 'x층 지폭 시전가능' 알림.
+        cur_z = int(snap.get("last_z", 0) or 0)
+        target = cur_z + 1
         if not hasattr(self, "_jipok_alert_enter"):
             self._jipok_alert_enter = {}
         for idx, d in list(self._healer_cooldowns.items()):
@@ -3508,18 +3508,18 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._jipok_alert_enter.pop(idx, None)
                 continue
             nick = str(d.get("nickname", "") or "").strip() or f"힐러{idx + 1}"
-            if cur_y in maps:
-                # 시전굴 진입 → 3초만 더 표시 후 해제.
+            if cur_z in maps:
+                # 시전층 진입 → 3초만 더 표시 후 해제.
                 ent = self._jipok_alert_enter.setdefault(idx, now)
                 if now - ent <= 3.0:
                     self._alert_overlay.push_countdown(
-                        key, f"{cur_y}굴 {nick} 지폭지술 시전가능", 1.5)
+                        key, f"{cur_z}층 {nick} 지폭지술 시전가능", 1.5)
                 else:
                     self._alert_overlay.drop_countdown(key)
             elif target in maps and 0 <= cj < 20:
                 self._jipok_alert_enter.pop(idx, None)
                 self._alert_overlay.push_countdown(
-                    key, f"{target}굴 {nick} 지폭지술 시전가능", 1.5)
+                    key, f"{target}층 {nick} 지폭지술 시전가능", 1.5)
             else:
                 self._jipok_alert_enter.pop(idx, None)
                 self._alert_overlay.drop_countdown(key)

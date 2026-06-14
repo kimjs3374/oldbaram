@@ -19,10 +19,9 @@ from typing import Callable, Optional, Union
 
 from .numlock_cycle import VK_NUMPAD7, VK_NUMPAD8
 
-# 파력무참 시전 굴 판정: 맵명 '선비족{x}-{y}({z})' 의 **굴 번호 y** 추출.
-# 2026-06-15 fix: 기존 정규식이 끝 '(z)'=층(1~7)을 잡아 모든 굴의 5/6층에서
-# 발사되던 버그. 굴(y)은 1~5. 예 '선비족2-3(5)' → y=3 (끝 z=5 아님).
-_PARLYUK_SUB_RE = re.compile(r"선비족\d+-(\d+)\(")
+# 파력무참 시전 판정: 맵명 끝 '(z)' = 층(1~7) 기준 (사용자 설정 = 층).
+# 예 '선비족2-3(5)' → 5. jipok/parlyuk_maps 는 층(z) 번호.
+_PARLYUK_SUB_RE = re.compile(r"\((\d+)\)\s*$")
 
 
 def _parlyuk_map_ok(ctx: dict, maps_getter) -> bool:
