@@ -371,12 +371,16 @@ def default_skills(parlyuk_offset_sec: float = 0.0,
         retry_until_ready=True,
         priority=11,
     ))
+    # 2026-06-15 fix: 백호의희원첨은 게임 화면에 쿨 텍스트가 안 떠(raw 687회 전부
+    # '백호의희원'만) verify 영구 실패 → retry_until_ready 가 매 사이클 12초 동안
+    # 스케줄러를 점유해 파력무참을 18초 지연. retry 끄고 1회 시전 후 쿨(40s)만큼
+    # 대기 → 파력 즉시 가능. (백호의희원첨 게임 쿨 표시/사용 여부는 사용자 확인)
     skills.append(SkillSpec(
         "백호의희원첨", int(vk_map.get("백호의희원첨", _VK_NUMPAD5)),
-        5.0, lambda c: _cd_empty(c, "백호의희원첨"),
+        40.0, lambda c: _cd_empty(c, "백호의희원첨"),
         verify_kind="cooldown",
         verify_target="백호의희원첨",
-        retry_until_ready=True,
+        retry_until_ready=False,
         priority=11,
     ))
 
