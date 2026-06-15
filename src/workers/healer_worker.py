@@ -3294,6 +3294,38 @@ class HealerWorker(QtCore.QThread):
         dur = now - self._run_start_ts
         if dur < 0.8:
             return want, reason
+        # 2026-06-15 통로 정렬(STUCK-ALIGN) — 좌우 진동 근본해결.
+        # 옛바는 특정 x(가로 통로) 또는 특정 y(세로 통로)에서만 그 축으로
+        # 뚫린다. 격수가 x=7 통로로 위로 갔는데 힐러가 x=9에서 U를 누르면
+        # 벽 → 기존엔 ORTHO2(반대축)가 격수 *반대* 방향으로 밀어 멀어지고
+        # (격수 x=7인데 R로 가서 x=11), STUCK-WAIT 가 trail이라며 헛대기 →
+        # 좌우만 왔다갔다 (실증 120 4층 14:03 STUCK 40회).
+        # 해결: 세로(U/D) 막힘 + 격수가 다른 x면 = 통로 미정렬 → 격수 x로
+        # *격수 방향만* 수평 정렬(반대방향 금지). x 도달하면 다음 틱 세로
+        # 재개 → 통로 통과. 가로 막힘은 대칭(격수 y로 수직 정렬).
+        # 격수와 같은 축 위치인데 막힌 경우(진짜 벽/몹)만 아래 WAIT/ORTHO.
+        # 정렬 2.5s 안에 못 풀면 기존 ORTHO/RESET 폴백(무한 정렬 방지).
+        if bool(atk.coord_valid) and dur < 2.5:
+            if want in ("U", "D") and atk.x != hx:
+                _al = "R" if atk.x > hx else "L"
+                if now - self._stuck_last_log >= 0.5:
+                    self._stuck_last_log = now
+                    self.log.warning(
+                        f"[STUCK-ALIGN] 세로막힘→통로정렬 h={h} "
+                        f"blocked={want} 격수x={atk.x} try={_al} "
+                        f"dur={dur:.1f}s")
+                return _al, (f"STUCK-ALIGN 통로정렬 격수x={atk.x} "
+                             f"h={h} blocked={want} try={_al}")
+            if want in ("L", "R") and atk.y != hy:
+                _al = "U" if atk.y > hy else "D"
+                if now - self._stuck_last_log >= 0.5:
+                    self._stuck_last_log = now
+                    self.log.warning(
+                        f"[STUCK-ALIGN] 가로막힘→통로정렬 h={h} "
+                        f"blocked={want} 격수y={atk.y} try={_al} "
+                        f"dur={dur:.1f}s")
+                return _al, (f"STUCK-ALIGN 통로정렬 격수y={atk.y} "
+                             f"h={h} blocked={want} try={_al}")
         # 2026-06-15 장애물 판단(사용자): 막으려는 다음 칸이 격수가 밟고 지나간
         # 곳(trail)이면 = 통행 가능한 칸인데 막힘 = 일시적 장애물(몹/다른 힐러)
         # → 잠깐 대기(비키길 기다림, 우회 금지). 격수가 안 밟은 칸 = 벽 → 우회.
