@@ -350,17 +350,28 @@ class AttackerWorker(QtCore.QThread):
                         try:
                             if not hasattr(self, "_jipok_ready_by_idx"):
                                 self._jipok_ready_by_idx = {}
-                            _ri = int(getattr(rep, "src_idx", 0))
                             # 2026-06-15 사용자: 지폭 "준비됨" 상태(cd=0)면 그 굴에서
                             # 쩔캐가 지폭을 쏠 것이므로 파력 양보(스킵). 쿨 도는
                             # 중(1~20=곧 재시전)도 스킵. → 0~20 전부 스킵.
                             # -1(미해당=현인 아님/지폭 미설정)만 제외.
                             # cd_jipok 정의: -1 미해당 / 0 준비됨 / 1~N 잔여쿨.
+                            # 🔴 키는 IP(src_ip)로. src_idx 는 힐러 간 0 으로 충돌
+                            # (거적데기·시백구 둘 다 reported_idx=0) → 쩔캐 True 가
+                            # 파력도사 False(-1)에 덮여 ready 항상 False → 5층
+                            # 파력이 안 막히던 근본(2026-06-15). IP는 힐러별 유니크.
                             _cj = int(getattr(rep, "cd_jipok", -1))
-                            self._jipok_ready_by_idx[_ri] = (0 <= _cj <= 20)
+                            self._jipok_ready_by_idx[src_ip] = (0 <= _cj <= 20)
+                            _ready = any(self._jipok_ready_by_idx.values())
                             if hasattr(self._app, "set_jjeol_jipok_ready"):
-                                self._app.set_jjeol_jipok_ready(
-                                    any(self._jipok_ready_by_idx.values()))
+                                self._app.set_jjeol_jipok_ready(_ready)
+                            if _cj >= 0:  # 쩔캐 cd 관측 시만 진단 로그(드묾).
+                                import time as _tj
+                                _nj = _tj.monotonic()
+                                if _nj - getattr(self, "_jipok_log_ts", 0.0) >= 3.0:
+                                    self._jipok_log_ts = _nj
+                                    self.log.info(
+                                        f"[JIPOK-READY] ip={src_ip} cd_jipok={_cj} "
+                                        f"ready={_ready} byip={self._jipok_ready_by_idx}")
                         except Exception:
                             pass
                         # §1: 힐러 좌표 → Attacker → State.peers broadcast(충돌 회피).
