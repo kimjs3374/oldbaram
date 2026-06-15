@@ -59,6 +59,28 @@ def _build_default_known_maps() -> set:
 
 DEFAULT_KNOWN_MAPS = _build_default_known_maps()
 
+# 2026-06-15: 선비족 맵 구조 검증 — 맵 전환 순간 OCR 오독('전미학예공',
+# '전미국5', '선비족3에' 등 구조 깨짐)이 게이트를 뚫고 known_maps 에 자동학습
+# 돼 영구 오염되던 것 차단. 선비족{x}-{y}({z}) / 선비족입구 / 선비족{x}(허브)
+# / 선비족{x}방 구조만 인정.
+_SUNBI_MAP_RE = re.compile(
+    r"^(제2)?선비족(입구|\d+방?|\d+(-\d+)?(\(\d+\))?)$")
+
+
+def _is_valid_map_struct(m: str) -> bool:
+    """맵명이 정상 구조인지. 선비족 구조 또는 DEFAULT 고정맵이면 True.
+
+    선비족 외 지역은 DEFAULT_KNOWN_MAPS(고정 사냥터명)로만 인정 — 현재
+    사용자는 선비족 사냥. 다른 지역 서브맵 가면 여기 확장 필요.
+    """
+    if not m:
+        return False
+    if _SUNBI_MAP_RE.match(m):
+        return True
+    if m in DEFAULT_KNOWN_MAPS:
+        return True
+    return False
+
 
 # 2026-04-23 사용자 요청: knownmaps.txt 기반 canonical 복원.
 # OCR이 한글자 누락(예: '흉'→공백)한 raw_m의 base 부분을 사용자 정의 리스트
@@ -674,6 +696,12 @@ class Ocr:
         healer_map으로 채택돼 trail 토글·MAP-SEQ 가짜발화 유발한 사고 대응.)
         _known_maps가 비면(standalone/격수 데이터 미수신) 기존 동작 유지.
         """
+        # 2026-06-15: 정상 구조 아니면 = 맵 전환 순간 OCR 오독('전미학예공',
+        # '선비족3에' 등) → 거부(직전맵 유지). known_maps 자동학습(706) 오염
+        # 차단. 첫 맵도 검증해 오독이 _last_map 으로 굳는 것 방지.
+        if raw_m and not _is_valid_map_struct(raw_m):
+            self._pending_map = raw_m
+            return self._last_map or ""
         if not self._last_map:
             self._last_map = raw_m
             self._pending_map = ""
