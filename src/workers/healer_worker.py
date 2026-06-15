@@ -3161,8 +3161,10 @@ class HealerWorker(QtCore.QThread):
         if self._jipok_hold_move:
             return "-", "JIPOK-HOLD 방향키 중단 (지폭지술 시퀀스 중)"
         want, reason = self._decide_move_raw(atk, fol, map_neq)
-        _w, _r = self._apply_stuck_filter(want, reason, atk, fol, map_neq)
-        return self._avoid_peer_collision(_w, _r, atk)
+        # 2026-06-15: PEER-AVOID(다른 캐릭 칸 즉시 직교 우회) 비활성 — 사용자
+        # 의도는 '막히면 잠깐 대기(비키길)'. 즉시 우회는 trail 이탈 유발.
+        # 다른 힐러/몹 막힘은 STUCK-WAIT(_apply_stuck_filter, trail 칸=대기)가 처리.
+        return self._apply_stuck_filter(want, reason, atk, fol, map_neq)
 
 
     def _blacklist_add(self, map_name: str, coord, direction: str) -> None:
@@ -3292,10 +3294,22 @@ class HealerWorker(QtCore.QThread):
         dur = now - self._run_start_ts
         if dur < 0.8:
             return want, reason
-        # 2026-06-13 STUCK-ASTAR 롤백: A* 우회가 STUCK-ORTHO/RESET 앞에서
-        # 가로채 blacklist 학습을 막고, maps blocked 부족(4개)으로 헛방향(R)을
-        # 5218회 무한반복 → 막힘 악화. maps 데이터(특히 blocked 막힘 학습)가
-        # 충분히 쌓인 뒤 재설계. 지금은 기존 STUCK-ORTHO + RESET blacklist 만.
+        # 2026-06-15 장애물 판단(사용자): 막으려는 다음 칸이 격수가 밟고 지나간
+        # 곳(trail)이면 = 통행 가능한 칸인데 막힘 = 일시적 장애물(몹/다른 힐러)
+        # → 잠깐 대기(비키길 기다림, 우회 금지). 격수가 안 밟은 칸 = 벽 → 우회.
+        # 대기 3s 초과 시(몹 안죽음/캐릭 안비킴) 벽 취급하고 ORTHO 우회로 폴백.
+        # (좌표축 L=x- R=x+ U=y+ D=y-)
+        try:
+            _wd = {"L": (-1, 0), "R": (1, 0),
+                   "U": (0, 1), "D": (0, -1)}.get(want)
+            if _wd is not None and dur < 3.0:
+                _nx, _ny = hx + _wd[0], hy + _wd[1]
+                _tr = getattr(fol, "_map_trail", {}).get(self.healer_map)
+                if _tr and (_nx, _ny) in _tr:
+                    return "-", (f"STUCK-WAIT 일시장애물(몹/캐릭) "
+                                 f"{want}→({_nx},{_ny}) dur={dur:.1f}s")
+        except Exception:
+            pass
         # 직교축 1차/2차 결정: X축 막힘 → Y축, Y축 막힘 → X축
         a_valid = bool(atk.coord_valid)
         if want in ("L", "R"):
