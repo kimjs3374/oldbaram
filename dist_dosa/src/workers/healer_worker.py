@@ -3317,7 +3317,9 @@ class HealerWorker(QtCore.QThread):
                 return _al, (f"STUCK-ALIGN 통로정렬 격수x={atk.x} "
                              f"h={h} blocked={want} try={_al}")
             if want in ("L", "R") and atk.y != hy:
-                _al = "U" if atk.y > hy else "D"
+                # 좌표축: D=y증가, U=y감소 (실측·기존 ORTHO와 동일).
+                # 격수 y가 크면(아래) D, 작으면(위) U = 격수 쪽.
+                _al = "D" if atk.y > hy else "U"
                 if now - self._stuck_last_log >= 0.5:
                     self._stuck_last_log = now
                     self.log.warning(

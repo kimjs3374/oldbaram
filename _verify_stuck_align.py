@@ -57,9 +57,15 @@ w, r = call(mk_self(9, 16, "U", 1.0), "U", atk, fol)
 check("x정렬됨 → ALIGN 스킵(L/R 아님)", w != "L" and w != "R", f"got {w} ({r})")
 
 # ④ 가로(L) 막힘 + 격수 y 다름 → 수직 정렬
+# 좌표축 D=y증가, U=y감소. 격수 y=20 > 힐러 y=16 = 격수가 아래 → D.
 atk = SimpleNamespace(x=3, y=20, coord_valid=True)
 w, r = call(mk_self(9, 16, "L", 1.0), "L", atk, fol)
-check("L막힘+격수y20>16 → U 정렬", w == "U", f"got {w}")
+check("L막힘+격수y20>16(아래) → D 정렬", w == "D", f"got {w}")
+
+# ④b 격수 y 작음(위) → U 정렬
+atk = SimpleNamespace(x=3, y=4, coord_valid=True)
+w, r = call(mk_self(9, 16, "L", 1.0), "L", atk, fol)
+check("L막힘+격수y4<16(위) → U 정렬", w == "U", f"got {w}")
 
 # ⑤ 정렬 2.5s 초과 → ALIGN 안 함(폴백). 격수 x 달라도 ORTHO/WAIT로.
 atk = SimpleNamespace(x=7, y=8, coord_valid=True)
