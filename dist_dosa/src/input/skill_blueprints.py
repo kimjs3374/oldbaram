@@ -358,14 +358,16 @@ def default_skills(parlyuk_offset_sec: float = 0.0,
     ))
 
     # 백호의희원 / 첨 — 쿨 OCR 기반. retry_until_ready 로 verify 성공까지 반복.
-    # cooldown_sec=0: verify 성공 후 OCR 쿨 관측되면 predicate 로 차단됨.
-    # cooldown_sec=5.0 은 "verify 실패 포기 후 재진입 금지" backoff 용.
-    # 정상 시전 + verify 성공 시엔 OCR 쿨 값으로 predicate 가 차단하므로
-    # 이 값이 실질 영향 없음. OCR 인식 실패 등으로 MAX 시도 초과 → last_cast
-    # 갱신 → 5초 후 재진입 허용 (그 사이 자힐/공증 등 edge 스킬 처리).
+    # cooldown_sec 은 "verify 실패 포기(GIVEUP) 후 재진입 금지" backoff + 시전
+    # 후 최소 대기. 정상 시전+verify 성공 시엔 OCR 쿨 값으로 predicate 가 차단.
+    # 2026-06-15 fix: 5.0 → 20.0. 백호 쿨 OCR 이 시전 직후 자주 미관측(-1)이라
+    # verify 가 3회 실패 GIVEUP → 5초 backoff → predicate(_cd_empty)가 -1을
+    # '쿨 없음=시전'으로 오판 → 5초마다 재시전(22분에 19회 과시전, 실측).
+    # 백호 실제 쿨은 OCR 관측상 ~22초(백호의희원22~10초) → backoff 20초로 올려
+    # 과시전 억제. OCR 정상 시엔 predicate 가 막아 영향 없음(주석 보증 유지).
     skills.append(SkillSpec(
         "백호의희원", int(vk_map.get("백호의희원", _VK_NUMPAD4)),
-        5.0, lambda c: _cd_empty(c, "백호의희원"),
+        20.0, lambda c: _cd_empty(c, "백호의희원"),
         verify_kind="cooldown",
         verify_target="백호의희원",
         retry_until_ready=True,
