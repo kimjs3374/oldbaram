@@ -2,6 +2,7 @@
 import json
 import os
 import pathlib
+import re
 import time
 from collections import deque
 from typing import Optional
@@ -284,6 +285,37 @@ class Follower:
             return (px, py), cands[0], i
         return None, None, None
         return None, None, None
+
+    # ---- 선비족 z(층) 전환 출구 방향 = 고정 규칙 (2026-06-15 사용자) ----
+    # 굴/지역 무관 전부 동일: 1→2 R, 2→3 U, 3→4 U, 4→5 U, 5→6 L,
+    # 6→7 L, 7→로비 U. 추정(global/boundary/portal-db)을 최종 override.
+    _SUNBI_Z_EXIT = {1: "R", 2: "U", 3: "U", 4: "U", 5: "L", 6: "L", 7: "U"}
+    _SUNBI_Z_RE = re.compile(r"(?:제2)?선비족\d+-\d+\((\d+)\)\s*$")
+
+    @classmethod
+    def _sunbi_exit_dir(cls, prev_map, new_map):
+        """선비족 굴 z(층) 정방향 전환의 고정 출구 방향. 해당없으면 None.
+
+        prev=선비족x-y(z) 이고 new=z+1(정방향)이면 표 적용. z==7에서
+        굴 밖(허브/로비/입구)으로 나가면 U. 역방향(데리러 복귀)·동일·
+        비선비족은 None → 기존 추정 로직 유지(망치지 않음).
+        """
+        if not prev_map:
+            return None
+        m = cls._SUNBI_Z_RE.search(prev_map)
+        if not m:
+            return None
+        z = int(m.group(1))
+        nm = cls._SUNBI_Z_RE.search(new_map or "")
+        if nm is not None:
+            new_z = int(nm.group(1))
+            if new_z == z + 1 and z in cls._SUNBI_Z_EXIT:
+                return cls._SUNBI_Z_EXIT[z]
+            return None
+        # 새 맵이 굴 구조가 아님(허브/로비/입구) — z==7 탈출만 확정.
+        if z == 7:
+            return "U"
+        return None
 
     # ---- 포탈 DB (2026-06-10) ----
     def _load_portal_db(self) -> None:
@@ -941,6 +973,16 @@ class Follower:
                 self._exit_coord = p_coord
                 if p_dir in ("L", "R", "U", "D"):
                     self._exit_dir = p_dir
+            # 선비족 z(층) 전환 고정 출구 방향 — 모든 추정의 최종 override
+            # (사용자 2026-06-15: 굴/지역 무관 무조건 이 구조). 추정 오판
+            # (EXIT-BOUNDARY R→U 등)을 원천 차단. coord는 기존값 유지.
+            sdir = self._sunbi_exit_dir(self._exit_map, s.map_name)
+            if sdir is not None:
+                if self.log is not None and sdir != self._exit_dir:
+                    self.log.info(
+                        f"[SUNBI-EXIT] {self._exit_map!r}→{s.map_name!r} "
+                        f"dir {self._exit_dir!r}→{sdir!r} (고정규칙)")
+                self._exit_dir = sdir
             # EXIT-FALLBACK 리셋 — 새 전환 시작.
             self._exit_fallback_n = 0
             self._healer_coord_progress_ts = now
