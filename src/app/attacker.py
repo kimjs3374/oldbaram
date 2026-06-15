@@ -110,6 +110,8 @@ class Attacker:
         # F2 → State.jipok_seq 증가 송신 → 쩔캐가 증가 감지 시 지폭지술 시퀀스.
         self._jipok_seq = 0
         self._jjeol_jipok_ready = False  # §6 쩔캐 지폭 준비됨 → 파력 스킵 중계
+        self._jipok_cast_seq = 0         # 지폭 시전 굴 추적: 마지막 반영한 seq
+        self._jipok_cast_z = None        # 지폭 쓴 굴(z) — 같은 굴 동안 파력 스킵
         self._peer_coords = {}           # §1 idx → (map, x, y). 충돌 회피 broadcast
         # 좌표급변(=맵전환, 워프 거의 없음) 감지 시 맵이름 OCR 갱신까지
         # map_change_pending 강제 ON → 격수 맵OCR(RapidOCR) 지연을 좌표(0.01초)로 흡수.
@@ -228,9 +230,25 @@ class Attacker:
         except Exception:
             pass
 
-    def set_jjeol_jipok_ready(self, ready: bool) -> None:
-        """§6: 쩔캐(현인) 지폭 준비 여부를 State 송신에 반영(파력 스킵 중계)."""
-        self._jjeol_jipok_ready = bool(ready)
+    def set_jjeol_jipok_ready(self, cd_ready: bool) -> None:
+        """§6: 쩔캐 지폭 준비/쿨 기반(cd_ready) + 지폭 쓴 그 굴(z) 추적.
+
+        2026-06-15 사용자: "지폭 쓴 그 굴만 파력 스킵, 다음 굴은 시전".
+        지폭 시전 직후 쿨이 254로 뛰어 cd_ready=False가 돼도, 지폭을 쏜
+        그 굴(z)에 있는 동안은 스킵 유지 → 같은 굴 파력 안 나감. 굴(z)이
+        바뀌면(다음 조건굴) 해제 → 거기선 파력 시전. (jipok_seq=F2 시전 카운터)
+        """
+        import re
+        _mn = (self._last.map_name if self._last is not None else "") or ""
+        _m = re.search(r"\((\d+)\)\s*$", _mn)
+        _cz = int(_m.group(1)) if _m else None
+        if self._jipok_seq > self._jipok_cast_seq:
+            self._jipok_cast_seq = self._jipok_seq
+            self._jipok_cast_z = _cz          # 지폭 시전 시점의 굴 기록
+        elif _cz is not None and _cz != self._jipok_cast_z:
+            self._jipok_cast_z = None         # 다른 굴 이동 → 해제
+        _same_gul = (_cz is not None and _cz == self._jipok_cast_z)
+        self._jjeol_jipok_ready = bool(cd_ready or _same_gul)
 
     def set_peer_coord(self, idx, map_name, x, y, valid: bool) -> None:
         """§1: 힐러/쩔캐 좌표를 모아 State.peers 로 broadcast(충돌 회피).
