@@ -3305,7 +3305,16 @@ class HealerWorker(QtCore.QThread):
             if _wd is not None and dur < 3.0:
                 _nx, _ny = hx + _wd[0], hy + _wd[1]
                 _tr = getattr(fol, "_map_trail", {}).get(self.healer_map)
-                if _tr and (_nx, _ny) in _tr:
+                # 학습된 벽(maps blocked/격수 막힘률)이면 통행 trail이어도 대기
+                # 안 하고 즉시 우회(전에 막힌 곳=또 막힘). A* 아닌 단순 조회.
+                _wall = False
+                try:
+                    _g = getattr(fol, "_grid", None)
+                    if _g is not None:
+                        _wall = _g.is_wall(self.healer_map, hx, hy, want)
+                except Exception:
+                    pass
+                if _tr and (_nx, _ny) in _tr and not _wall:
                     return "-", (f"STUCK-WAIT 일시장애물(몹/캐릭) "
                                  f"{want}→({_nx},{_ny}) dur={dur:.1f}s")
         except Exception:

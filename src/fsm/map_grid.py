@@ -159,6 +159,28 @@ class MapGrid:
                         cur["block"] += int(tb.get("block", 0))
             s["dirty"] = True
 
+    def is_wall(self, name, x, y, d, block_rate: float = 0.7,
+                min_try: int = 3) -> bool:
+        """학습된 벽 조회 — A* 없이 단순 멤버십 조회라 폭주 위험 0.
+
+        (x,y)에서 d 방향이: ①STUCK 학습 벽(blocked, 힐러 3.5s 막힘) 또는
+        ②격수 막힘률(attempts block/try ≥ block_rate, 시도 min_try+) 이면 벽.
+        데이터 쌓일수록 신뢰도↑ (없으면 False → 호출측 기존 동작).
+        """
+        s = self._maps.get(canon_map_name(name))
+        if s is None:
+            return False
+        k = f"{x},{y}"
+        if d in s["blocked"].get(k, {}):
+            return True
+        a = s["attempts"].get(k, {}).get(d)
+        if a:
+            t = int(a.get("try", 0))
+            b = int(a.get("block", 0))
+            if t >= min_try and b / max(1, t) >= block_rate:
+                return True
+        return False
+
     def route_next_dir(self, map_name, start, goal, avoid=None):
         """§2 S3: 수집된 maps(walk/blocked)로 start→goal A* 첫 방향.
 
