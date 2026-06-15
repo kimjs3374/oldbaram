@@ -783,12 +783,18 @@ class Follower:
                 if not push_ok:
                     rc = self._reject_count.get(s.map_name, 0) + 1
                     self._reject_count[s.map_name] = rc
-                    if self.log is not None:
+                    # 2026-06-15: 맵 전환 시 격수 새맵 좌표를 옛맵명으로 1초간
+                    # 수신 → 같은 좌표 점프가 수십~수백회 반복 reject(로그 5190회
+                    # 폭주). 같은 coord 연속 reject 는 첫 1회만 로그(throttle).
+                    if self.log is not None \
+                            and coord != getattr(self, "_last_reject_coord", None):
+                        self._last_reject_coord = coord
                         self.log.debug(
                             f"[TRAIL-REJECT] map={s.map_name!r} coord={coord} "
                             f"reason={reject_reason} reject_total={rc}"
                         )
                 else:
+                    self._last_reject_coord = None  # 성공 push → throttle 리셋
                     # J안: 성공 push 시 last_valid 갱신 (다음 프레임 점프 판정 기준).
                     self._atk_last_valid_coord_by_map[s.map_name] = coord
                     self._map_last_coord[s.map_name] = coord

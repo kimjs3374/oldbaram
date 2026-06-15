@@ -51,10 +51,17 @@ w, r = call(mk_self(9, 16, "U", 1.0), "U", atk, fol)
 check("U막힘+격수x11>9 → R 정렬", w == "R", f"got {w}")
 
 # ③ x 도달(격수 x==힐러 x) → ALIGN 안 함 → 기존 로직(STUCK-WAIT/ORTHO)
-#    (9,17)이 trail이라 STUCK-WAIT 대기('-') 또는 ORTHO
 atk = SimpleNamespace(x=9, y=8, coord_valid=True)
 w, r = call(mk_self(9, 16, "U", 1.0), "U", atk, fol)
-check("x정렬됨 → ALIGN 스킵(L/R 아님)", w != "L" and w != "R", f"got {w} ({r})")
+check("x정렬됨 → ALIGN 스킵", "ALIGN" not in r, f"got {w} ({r})")
+
+# ③b STUCK-WAIT 정확칸: U막힘(위로)+격수같은x, 위칸(hy-1=15)이 trail이면 대기.
+#    _wd 좌표축 수정(U=y-) 검증: 위로 가려면 다음칸 (9,15) 봐야(기존엔 9,17 오판).
+fol_up = SimpleNamespace(_map_trail={"선비족3-2(4)": {(9, 15)}}, _grid=None)
+atk = SimpleNamespace(x=9, y=8, coord_valid=True)
+w, r = call(mk_self(9, 16, "U", 1.0), "U", atk, fol_up)
+check("U막힘+위칸(9,15) trail → STUCK-WAIT 대기", w == "-" and "WAIT" in r,
+      f"got {w} ({r})")
 
 # ④ 가로(L) 막힘 + 격수 y 다름 → 수직 정렬
 # 좌표축 D=y증가, U=y감소. 격수 y=20 > 힐러 y=16 = 격수가 아래 → D.

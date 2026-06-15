@@ -3340,10 +3340,12 @@ class HealerWorker(QtCore.QThread):
         # 곳(trail)이면 = 통행 가능한 칸인데 막힘 = 일시적 장애물(몹/다른 힐러)
         # → 잠깐 대기(비키길 기다림, 우회 금지). 격수가 안 밟은 칸 = 벽 → 우회.
         # 대기 3s 초과 시(몹 안죽음/캐릭 안비킴) 벽 취급하고 ORTHO 우회로 폴백.
-        # (좌표축 L=x- R=x+ U=y+ D=y-)
+        # 좌표축 실측: L=x- R=x+ D=y+(아래=y증가) U=y-(위=y감소).
+        # 2026-06-15 수정: 기존 U:(0,1)/D:(0,-1)은 반대였음 → STUCK-WAIT가
+        # want 반대칸의 trail 여부로 대기 오판. _PEER_DXY(v94)와 동일 수정.
         try:
             _wd = {"L": (-1, 0), "R": (1, 0),
-                   "U": (0, 1), "D": (0, -1)}.get(want)
+                   "U": (0, -1), "D": (0, 1)}.get(want)
             if _wd is not None and dur < 3.0:
                 _nx, _ny = hx + _wd[0], hy + _wd[1]
                 _tr = getattr(fol, "_map_trail", {}).get(self.healer_map)
