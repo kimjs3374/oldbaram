@@ -3523,8 +3523,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._jipok_alert_enter.pop(idx, None)
                 continue
             nick = self._row_nick(idx, d)
-            if cur_z in maps:
-                # 시전층 진입 → 3초만 더 표시 후 해제.
+            # 2026-06-15 버그수정: 시전층 도착도 쿨<20s 조건 필수. 기존엔
+            # cur_z in maps 면 쿨 무관 알림 → 쿨 50초+ 남았는데 "시전가능"
+            # 오알림(사용자). 지폭쿨 20s 이상이면 아직 못 쏘니 알림 금지.
+            if cur_z in maps and 0 <= cj < 20:
+                # 시전층 진입 + 곧 시전가능 → 3초만 더 표시 후 해제.
                 ent = self._jipok_alert_enter.setdefault(idx, now)
                 if now - ent <= 3.0:
                     self._alert_overlay.push_countdown(

@@ -3305,7 +3305,11 @@ class HealerWorker(QtCore.QThread):
         # 재개 → 통로 통과. 가로 막힘은 대칭(격수 y로 수직 정렬).
         # 격수와 같은 축 위치인데 막힌 경우(진짜 벽/몹)만 아래 WAIT/ORTHO.
         # 정렬 2.5s 안에 못 풀면 기존 ORTHO/RESET 폴백(무한 정렬 방지).
-        if bool(atk.coord_valid) and dur < 2.5:
+        # not map_neq: 같은 맵 추종일 때만 통로 정렬. 맵 전환 중(격수가
+        # 이미 다음 맵)이면 격수 좌표가 다른 맵이라 정렬 기준 무효 →
+        # 격수 새맵 x로 헛정렬(7층 79초 STUCK 85회 실증). 이땐 trail/
+        # exit_dir 추종(FORCE-EXIT-TRAIL)을 살려야 함 → ALIGN 스킵.
+        if bool(atk.coord_valid) and dur < 2.5 and not map_neq:
             if want in ("U", "D") and atk.x != hx:
                 _al = "R" if atk.x > hx else "L"
                 if now - self._stuck_last_log >= 0.5:

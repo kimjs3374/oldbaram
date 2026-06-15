@@ -77,6 +77,12 @@ atk = SimpleNamespace(x=7, y=8, coord_valid=False)
 w, r = call(mk_self(9, 16, "U", 1.0), "U", atk, fol)
 check("격수 무효 → ALIGN 스킵", "ALIGN" not in r, f"got {w} ({r})")
 
+# ⑦ map_neq=True (맵 전환 중, 격수 새맵 좌표) → ALIGN 스킵, trail 추종 살림
+atk = SimpleNamespace(x=7, y=8, coord_valid=True)
+w, r = HealerWorker._apply_stuck_filter(
+    mk_self(9, 16, "U", 1.0), "U", "r", atk, fol, True)
+check("map_neq=True(맵전환) → ALIGN 스킵", "ALIGN" not in r, f"got {w} ({r})")
+
 print()
 print("RESULT:", "ALL PASS" if not fails else f"FAIL {fails}")
 sys.exit(1 if fails else 0)
