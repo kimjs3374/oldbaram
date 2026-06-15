@@ -55,7 +55,45 @@ def _save_last(nick: str, role: str) -> None:
         pass
 
 
+def _auto_update():
+    """2026-06-15: 앱 시작 시 자동 업데이트 (install.bat 우회 직접 실행 대비).
+
+    updater 모듈은 완비돼 있었으나 어떤 진입점도 호출하지 않아 → 사용자가
+    install.bat 을 안 거치면 옛 버전에 고착(v89 등). "고쳐도 반영 안 됨"의
+    근본. healer_gui 가 healer/attacker/jjeol 통합 진입점이라 여기 한 곳이면
+    전 역할 커버. 오프라인/설정없음/실패는 전부 스킵하고 앱은 정상 실행.
+    """
+    try:
+        from ..net.cloud_sync import CloudClient
+        from ..net import updater
+    except Exception:
+        return
+    try:
+        client = CloudClient()           # ~/.oldbaram_cloud.json 자동 로드
+    except Exception:
+        return                            # 설정 없음/오프라인 → 스킵
+    try:
+        rel = updater.check(client)       # 최신 version > 로컬이면 release
+        if not rel:
+            return
+        ver = int(rel.get("version", 0))
+        print(f"[AUTO-UPDATE] v{ver} 발견 → 변경 파일 다운로드...")
+        got = updater.download_updates(client, rel)
+        if got:
+            print(f"[AUTO-UPDATE] {len(got)}개 파일 적용 후 재시작합니다.")
+            updater.launch_apply_and_exit(ver)
+            sys.exit(0)                   # _apply_update.bat 이 복사+재시작
+        else:
+            updater.write_version(ver)    # 변경 없음 → 버전만 갱신(재시작 불필요)
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"[AUTO-UPDATE] 스킵(실패해도 앱 실행): {e}")
+
+
 def main():
+    # 2026-06-15: 무엇보다 먼저 자동 업데이트 (옛 버전 고착 방지).
+    _auto_update()
     # 2026-06-13 항목8: 시작 시 닉네임/역할 선택 다이얼로그 제거 →
     #   GUI 메인창의 닉네임 필드 + 역할 라디오에서 직접 설정.
     #   직전 세션 값(.oldbaram_session.json)을 필드/라디오에 복원만 한다.
