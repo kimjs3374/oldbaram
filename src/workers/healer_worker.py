@@ -3109,7 +3109,9 @@ class HealerWorker(QtCore.QThread):
         except Exception:
             return False
 
-    _PEER_DXY = {"L": (-1, 0), "R": (1, 0), "U": (0, 1), "D": (0, -1)}
+    # 좌표축 실측: R=x+, L=x-, D=y+(아래=y증가), U=y-(위=y감소).
+    # (2)굴/7층 STUCK 로그에서 D키→y증가 확인. 기존 U:(0,1)/D:(0,-1)은 반대였음.
+    _PEER_DXY = {"L": (-1, 0), "R": (1, 0), "U": (0, -1), "D": (0, 1)}
 
     def _parse_peers(self, atk) -> set:
         """§1: State.peers 에서 같은맵 다른 캐릭 좌표 집합(자기 idx 제외)."""
@@ -3161,9 +3163,11 @@ class HealerWorker(QtCore.QThread):
         if self._jipok_hold_move:
             return "-", "JIPOK-HOLD 방향키 중단 (지폭지술 시퀀스 중)"
         want, reason = self._decide_move_raw(atk, fol, map_neq)
-        # 2026-06-15: PEER-AVOID(다른 캐릭 칸 즉시 직교 우회) 비활성 — 사용자
-        # 의도는 '막히면 잠깐 대기(비키길)'. 즉시 우회는 trail 이탈 유발.
-        # 다른 힐러/몹 막힘은 STUCK-WAIT(_apply_stuck_filter, trail 칸=대기)가 처리.
+        # 2026-06-15 사용자 재요청: PEER-AVOID 재활성 — 다른 캐릭 칸이면 옆으로
+        # 즉시 우회(엉킴 방지). 단 맵 전환 중(map_neq)엔 trail 추종 우선이라
+        # 우회 안 함(7층류 trail 이탈 방지). 같은 맵 추종 시에만 적용.
+        if not map_neq:
+            want, reason = self._avoid_peer_collision(want, reason, atk)
         return self._apply_stuck_filter(want, reason, atk, fol, map_neq)
 
 
@@ -3704,10 +3708,11 @@ class HealerWorker(QtCore.QThread):
             # 이동 전까지 정지 유지 → 격수 방향변화/OCR 미세흔들림에 안 따라가
             # "계속 돌아다님" 차단. 격수가 실제 tol 넘게 움직이면 추종 재개.
             if self._follow_parked and self._park_atk is not None:
-                # 2026-06-15 fix: park 유지 히스테리시스 — 진입 tol, 이탈 tol+1.
-                # 격수 미세이동(tol 경계)에 park 진입↔해제 떨림(-↔U 진동) 방지.
+                # 2026-06-15: 사용자가 "tol2인데 멀다" → 정지 latch 완화.
+                # 이탈 임계 tol+1 → tol (park 후 격수 맨해튼 tol 이동하면 추종
+                # 재개 = 더 밀착). 떨림 방지는 약간 희생(사용자 수용).
                 if (abs(ax - self._park_atk[0])
-                        + abs(ay - self._park_atk[1])) <= tol + 1:
+                        + abs(ay - self._park_atk[1])) <= tol:
                     return "-", (
                         f"B3-PARK 격수정지 대기 a=({ax},{ay}) "
                         f"park={self._park_atk} tol={tol}"
