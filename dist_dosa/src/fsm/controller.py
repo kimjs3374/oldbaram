@@ -263,9 +263,15 @@ class Follower:
                     # 포탈은 보통 진행 끝 수직(상/하단)이라 가로 진행방향이
                     # 오판되기 쉬움 ((7)→허브 (3,0) 'L' 오학습). 가로 출구가
                     # 명확하면(공유축 1개) 위에서 이미 보존. 틀리면 EXIT-FALLBACK.
-                    for _vd in ("U", "D"):
-                        if _vd in cands:
-                            return (px, py), _vd, i
+                    # 2026-06-15 재수정: 단 직전 진행이 순수 가로(dy==0,dx≠0)면
+                    # 진짜 가로 진출이라 R/L 존중(아래 pref). (19,10) R진출을
+                    # U로 덮던 버그 — 격수 (18,10)→(19,10) R인데 R·U 공유코너라
+                    # U/D 우선이 U로 오판. 순수 가로는 노이즈 아님(연속 단조).
+                    _dxc, _dyc = px - qx, py - qy
+                    if not (_dyc == 0 and _dxc != 0):
+                        for _vd in ("U", "D"):
+                            if _vd in cands:
+                                return (px, py), _vd, i
                 dx, dy = px - qx, py - qy
                 if dx or dy:
                     pref = (("R" if dx > 0 else "L")
