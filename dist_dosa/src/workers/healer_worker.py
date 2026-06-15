@@ -3365,6 +3365,22 @@ class HealerWorker(QtCore.QThread):
             pass
         # 직교축 1차/2차 결정: X축 막힘 → Y축, Y축 막힘 → X축
         a_valid = bool(atk.coord_valid)
+        # 2026-06-16: 격수와 직교축이 이미 정렬됐는데(같은 x 또는 y) 막힘 =
+        # 그 줄에서 그 방향으로 못 감(통로 아님). 기존엔 ortho 기본값으로
+        # 격수 반대로 가 STUCK-ALIGN↔ORTHO 진동(1737회/23분 주범). 대기로
+        # 바꿔 멀어지지 않게 — 격수가 사냥 중 움직이면 추종 재개. 3.0s+ 면
+        # 아래 RESET 로 폴백(진짜 끼임 대비).
+        _aligned = (a_valid and (
+            (want in ("U", "D") and atk.x == hx) or
+            (want in ("L", "R") and atk.y == hy)))
+        if _aligned and dur < 3.0:
+            if now - self._stuck_last_log >= 0.5:
+                self._stuck_last_log = now
+                self.log.warning(
+                    f"[STUCK-HOLD] 격수정렬+{want}막힘 대기 h={h} "
+                    f"atk=({atk.x},{atk.y}) dur={dur:.1f}s")
+            return "-", (f"STUCK-HOLD 격수정렬+{want}막힘 대기 "
+                         f"h={h} atk=({atk.x},{atk.y})")
         if want in ("L", "R"):
             # Y축으로 풀이. 1차 = 격수 y 방향, 2차 = 반대
             if a_valid and atk.y != hy:
@@ -3763,6 +3779,22 @@ class HealerWorker(QtCore.QThread):
                 first, second = x_dir, y_dir
             else:
                 first, second = y_dir, x_dir
+            # 2026-06-16: 세로추종 U 막힘 745회 근본 — first 축이 학습된 벽
+            # (maps blocked/격수막힘률)이고 second(직교 정렬축)는 안 막혔으면
+            # second 선제. STUCK-ALIGN(막힌 후 0.8s 정렬, 1737회/23분)을
+            # to_target 단계로 앞당겨 격수 통로 x 미리 맞춤. 학습 데이터 없으면
+            # is_wall=False → 기존 동작(안전). 양 축 다 벽이면 그대로.
+            if first and second:
+                try:
+                    _g = getattr(fol, "_grid", None)
+                    if _g is not None \
+                            and _g.is_wall(self.healer_map, hx, hy, first) \
+                            and not _g.is_wall(self.healer_map, hx, hy, second):
+                        first, second = second, first
+                        self._b3_primary_axis = ("x" if first == x_dir
+                                                 else "y")
+                except Exception:
+                    pass
             reverse_map = {"L": "R", "R": "L", "U": "D", "D": "U"}
             bl_first = bool(first) and self._blacklist_check(
                 self.healer_map, h, first

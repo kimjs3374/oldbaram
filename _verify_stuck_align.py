@@ -90,6 +90,19 @@ w, r = HealerWorker._apply_stuck_filter(
     mk_self(9, 16, "U", 1.0), "U", "r", atk, fol, True)
 check("map_neq=True(맵전환) → ALIGN 스킵", "ALIGN" not in r, f"got {w} ({r})")
 
+# ⑧ STUCK-HOLD: 격수와 x 정렬(atk.x==hx)인데 세로(U) 막힘 → 진동 대신 대기.
+#    기존엔 ortho 기본 R로 격수에서 멀어져 진동(1737회 주범) → 대기로 수정.
+fol_nw = SimpleNamespace(_map_trail={}, _grid=None)
+atk = SimpleNamespace(x=9, y=8, coord_valid=True)  # 격수x=9 == 힐러x=9
+w, r = call(mk_self(9, 16, "U", 1.5), "U", atk, fol_nw)
+check("격수x정렬+U막힘 → STUCK-HOLD 대기", w == "-" and "HOLD" in r,
+      f"got {w} ({r})")
+# ⑧b 격수 x 다름 → HOLD 아님(ALIGN으로 정렬)
+atk = SimpleNamespace(x=6, y=8, coord_valid=True)
+w, r = call(mk_self(9, 16, "U", 1.5), "U", atk, fol_nw)
+check("격수x다름+U막힘 → ALIGN(L 정렬, HOLD 아님)", w == "L" and "ALIGN" in r,
+      f"got {w} ({r})")
+
 print()
 print("RESULT:", "ALL PASS" if not fails else f"FAIL {fails}")
 sys.exit(1 if fails else 0)
