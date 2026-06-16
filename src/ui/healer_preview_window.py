@@ -7,16 +7,16 @@ QImage 로 변환 후 signal 로 GUI 스레드에 넘긴다(스레드 경계 안
 
 기능:
 - 동적 그리드: 접속한 힐러 수만큼 칸 자동 생성(하드코딩 칸 없음).
+- 배치 선택: 상단 버튼으로 좌우(한 행)/상하(한 열) 토글. 선택도 기억.
 - 반응형: 창 크기에 따라 각 셀 픽스맵이 비율 유지로 확대/축소(마지막 프레임 캐시).
-- 위치/크기 기억: 닫힐 때 geometry 를 ~/.oldbaram_preview.json 에 저장 → 재실행 복원.
+- 위치/크기/배치 기억: ~/.oldbaram_preview.json 저장 → 재실행 복원.
 - 메인 종료 동반: parent(메인 윈도우)가 _allow_close 후 close() 하면 진짜 닫힘.
 """
 from __future__ import annotations
 
 import json
-import math
 import pathlib
-from typing import Dict, Optional
+from typing import Dict
 
 import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -24,10 +24,8 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 _GEO_PATH = pathlib.Path.home() / ".oldbaram_preview.json"
 _DEFAULT_CELL_W = 720   # 기본 셀 폭(px). 실제 표시 폭은 창 크기에 따라 반응형.
 _MIN_CELL_W = 160
-_MAX_COLS = 2           # 가로 최대 열 수. 3대 → 2×2.
 _MARGIN = 6
 _SPACING = 6
-_NICK_H = 22            # 닉 라벨 높이 추정(레이아웃 여백 계산용).
 
 
 class HealerPreviewWindow(QtWidgets.QWidget):
@@ -41,12 +39,41 @@ class HealerPreviewWindow(QtWidgets.QWidget):
             QtCore.Qt.Window | QtCore.Qt.WindowStaysOnTopHint
         )
         self.setStyleSheet("background:#12141a; color:#cfd3dc;")
-        self._grid = QtWidgets.QGridLayout(self)
-        self._grid.setContentsMargins(_MARGIN, _MARGIN, _MARGIN, _MARGIN)
-        self._grid.setSpacing(_SPACING)
+        self._layout_mode = "h"     # "h"=좌우(한 행), "v"=상하(한 열).
+        self._allow_close = False   # 메인이 종료시 True 로 세팅 후 close().
         # src_ip -> {"box","img","nick","qimg"(마지막 프레임 캐시)}
         self._cells: Dict[str, dict] = {}
-        self._allow_close = False   # 메인이 종료시 True 로 세팅 후 close().
+
+        outer = QtWidgets.QVBoxLayout(self)
+        outer.setContentsMargins(_MARGIN, _MARGIN, _MARGIN, _MARGIN)
+        outer.setSpacing(4)
+
+        # 상단 배치 토글 바.
+        bar = QtWidgets.QHBoxLayout()
+        bar.setContentsMargins(0, 0, 0, 0)
+        self._btn_h = QtWidgets.QPushButton("좌우 배치")
+        self._btn_v = QtWidgets.QPushButton("상하 배치")
+        for b in (self._btn_h, self._btn_v):
+            b.setCheckable(True)
+            b.setStyleSheet(
+                "QPushButton{padding:3px 10px; background:#222634;"
+                "border:1px solid #333; color:#cfd3dc;}"
+                "QPushButton:checked{background:#2d6cdf; color:#fff;}"
+            )
+        self._btn_h.clicked.connect(lambda: self._set_layout_mode("h"))
+        self._btn_v.clicked.connect(lambda: self._set_layout_mode("v"))
+        bar.addWidget(self._btn_h)
+        bar.addWidget(self._btn_v)
+        bar.addStretch(1)
+        outer.addLayout(bar)
+
+        # 그리드 컨테이너.
+        gc = QtWidgets.QWidget()
+        self._grid = QtWidgets.QGridLayout(gc)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setSpacing(_SPACING)
+        outer.addWidget(gc, 1)
+
         self._frame_in.connect(self._on_frame_gui)
         # geometry 저장 디바운스(이동/리사이즈 폭주 방지).
         self._save_timer = QtCore.QTimer(self)
@@ -54,6 +81,22 @@ class HealerPreviewWindow(QtWidgets.QWidget):
         self._save_timer.setInterval(500)
         self._save_timer.timeout.connect(self._save_geo)
         self._restore_geo()
+        self._sync_buttons()
+
+    # ---- 배치 모드 ----
+    def _set_layout_mode(self, mode: str) -> None:
+        self._layout_mode = "v" if mode == "v" else "h"
+        self._sync_buttons()
+        self._relayout()
+        self._save_geo()
+
+    def _sync_buttons(self) -> None:
+        self._btn_h.setChecked(self._layout_mode == "h")
+        self._btn_v.setChecked(self._layout_mode == "v")
+
+    def _cols(self) -> int:
+        n = max(1, len(self._cells))
+        return 1 if self._layout_mode == "v" else n  # v=한 열, h=한 행.
 
     # ---- 수신 콜백 (수신 스레드) ----
     def on_frame(self, src_ip: str, idx: int, nick: str,
@@ -79,12 +122,12 @@ class HealerPreviewWindow(QtWidgets.QWidget):
             self._cells[key] = cell
             self._relayout()
         cell["nick"].setText(title)
-        cell["qimg"] = qimg            # 캐시 (리사이즈 시 재스케일용).
+        cell["qimg"] = qimg            # 캐시 (리사이즈/배치변경 시 재스케일용).
         self._rescale_cell(cell)
 
     # ---- 반응형 스케일 ----
     def _cell_w(self) -> int:
-        cols = min(_MAX_COLS, max(1, len(self._cells)))
+        cols = self._cols()
         avail = self.width() - 2 * _MARGIN - _SPACING * (cols - 1)
         return max(_MIN_CELL_W, avail // cols)
 
@@ -115,7 +158,7 @@ class HealerPreviewWindow(QtWidgets.QWidget):
 
     def _relayout(self) -> None:
         order = sorted(self._cells.keys())
-        cols = min(_MAX_COLS, max(1, len(order)))
+        cols = self._cols()
         for pos, key in enumerate(order):
             box = self._cells[key]["box"]
             self._grid.removeWidget(box)
@@ -142,13 +185,14 @@ class HealerPreviewWindow(QtWidgets.QWidget):
             ev.ignore()           # 사용자가 X → 숨김만(수신 유지).
             self.hide()
 
-    # ---- geometry 영속 ----
+    # ---- geometry/배치 영속 ----
     def _save_geo(self) -> None:
         try:
             g = self.geometry()
-            _GEO_PATH.write_text(json.dumps(
-                {"x": g.x(), "y": g.y(), "w": g.width(), "h": g.height()}
-            ), encoding="utf-8")
+            _GEO_PATH.write_text(json.dumps({
+                "x": g.x(), "y": g.y(), "w": g.width(), "h": g.height(),
+                "layout": self._layout_mode,
+            }), encoding="utf-8")
         except Exception:
             pass
 
@@ -156,11 +200,11 @@ class HealerPreviewWindow(QtWidgets.QWidget):
         try:
             if _GEO_PATH.is_file():
                 d = json.loads(_GEO_PATH.read_text(encoding="utf-8"))
+                self._layout_mode = "v" if d.get("layout") == "v" else "h"
                 self.setGeometry(int(d["x"]), int(d["y"]),
                                  int(d["w"]), int(d["h"]))
                 return
         except Exception:
             pass
         # 기본: 셀 1칸 크기.
-        self.resize(_DEFAULT_CELL_W + 2 * _MARGIN,
-                    _DEFAULT_CELL_W + _NICK_H + 2 * _MARGIN)
+        self.resize(_DEFAULT_CELL_W + 2 * _MARGIN, _DEFAULT_CELL_W)
