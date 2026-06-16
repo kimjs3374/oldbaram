@@ -104,6 +104,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.peers_edit = self.net_dlg.peers_edit
         self.port_spin = self.net_dlg.port_spin
         self.rate_spin = self.net_dlg.rate_spin
+        self.pv_width_spin = self.net_dlg.pv_width_spin
+        self.pv_fps_spin = self.net_dlg.pv_fps_spin
+        self.pv_quality_spin = self.net_dlg.pv_quality_spin
+        for _sp in (self.pv_width_spin, self.pv_fps_spin,
+                    self.pv_quality_spin):
+            _sp.valueChanged.connect(self._on_preview_settings_changed)
         self._settings_path = Path.home() / ".oldbaram_gui.json"
         # 상시 원격 제어 리스너 (워커가 꺼져 있어도 start 명령 수신).
         self._ctrl_listener: ControlListener = None
@@ -3926,6 +3932,16 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as e:
             self._append_log(f"[PREVIEW] 수신 시작 실패: {e}")
 
+    def _on_preview_settings_changed(self, *_a) -> None:
+        """미리보기 해상도/fps/품질 변경 → cfg 반영. heartbeat ping 이 다음
+        주기(≤1s)에 힐러로 전파 → 힐러 FrameSender.set_params 적용."""
+        try:
+            self.cfg.net.preview_width = int(self.pv_width_spin.value())
+            self.cfg.net.preview_fps = int(self.pv_fps_spin.value())
+            self.cfg.net.preview_quality = int(self.pv_quality_spin.value())
+        except Exception:
+            pass
+
     def _start_preview_receiver(self) -> None:
         """격수 미리보기 TCP 수신 + 독립 창 기동 (격수 모드 전용)."""
         if not getattr(self.cfg.net, "preview_enabled", True):
@@ -4507,6 +4523,18 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             if self._region_overlay is not None:
                 self._region_overlay.close()
+        except Exception:
+            pass
+        # 미리보기 창도 메인과 함께 종료(_allow_close 후 진짜 닫힘) + 수신 정지.
+        try:
+            if self._preview_win is not None:
+                self._preview_win._allow_close = True
+                self._preview_win.close()
+        except Exception:
+            pass
+        try:
+            if self._preview_recv is not None:
+                self._preview_recv.stop()
         except Exception:
             pass
         # 상시 원격 리스너/heartbeat 정리.

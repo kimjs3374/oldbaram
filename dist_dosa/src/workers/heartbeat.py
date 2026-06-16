@@ -144,7 +144,12 @@ class AttackerHeartbeat(QtCore.QThread):
                         pass
                 try:
                     c = ControlCmd(
-                        target_idx=-1, cmd="ping", ts_ms=now_ms()
+                        target_idx=-1, cmd="ping", ts_ms=now_ms(),
+                        pv_width=int(getattr(
+                            self._cfg.net, "preview_width", 0)),
+                        pv_fps=int(getattr(self._cfg.net, "preview_fps", 0)),
+                        pv_quality=int(getattr(
+                            self._cfg.net, "preview_quality", 0)),
                     )
                     data = c.to_bytes()
                     for p in peers:

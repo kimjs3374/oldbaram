@@ -1613,6 +1613,16 @@ class HealerWorker(QtCore.QThread):
                 if c.target_idx not in (-1, my_idx):
                     return
                 self.apply_remote_control(c.cmd)
+                # 격수가 전파한 미리보기 설정 적용(ping 에 실려 옴).
+                if self._frame_sender is not None:
+                    try:
+                        self._frame_sender.set_params(
+                            width=int(getattr(c, "pv_width", 0)),
+                            fps=int(getattr(c, "pv_fps", 0)),
+                            quality=int(getattr(c, "pv_quality", 0)),
+                        )
+                    except Exception:
+                        pass
             recv.set_control_handler(_on_ctrl)
             recv.start()
             self.log_msg.emit(f"UDP listen {cfg.net.bind_host}:{cfg.net.port}")

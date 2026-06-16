@@ -93,6 +93,10 @@ class ControlCmd:
     target_idx: int = 0
     cmd: str = "start"
     ts_ms: int = 0
+    # 미리보기 설정(격수 GUI → 힐러 전파). ping 에 항상 실어 보냄. 0=무변경.
+    pv_width: int = 0
+    pv_fps: int = 0
+    pv_quality: int = 0
 
     def to_bytes(self) -> bytes:
         d = asdict(self)

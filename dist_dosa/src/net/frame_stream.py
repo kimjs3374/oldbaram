@@ -83,6 +83,17 @@ class FrameSender:
         with self._lock:
             self._nick = str(nickname or "")
 
+    def set_params(self, width: int = 0, fps: int = 0,
+                   quality: int = 0) -> None:
+        """격수에서 전파된 미리보기 설정 동적 적용. 0/음수는 무시(기존 유지)."""
+        with self._lock:
+            if width and int(width) > 0:
+                self._width = int(width)
+            if fps and float(fps) > 0:
+                self._interval = 1.0 / float(fps)
+            if quality and int(quality) > 0:
+                self._quality = max(1, min(100, int(quality)))
+
     def submit(self, frame_bgr: np.ndarray) -> None:
         # 참조만 저장. grab() 은 매 iter 새 ndarray 라 race 없음.
         with self._lock:

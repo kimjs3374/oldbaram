@@ -27,6 +27,12 @@ def collect(mw) -> dict:
         "peers": mw.peers_edit.text(),
         "port": mw.port_spin.value(),
         "rate": mw.rate_spin.value(),
+        "pv_width": int(mw.pv_width_spin.value())
+        if hasattr(mw, "pv_width_spin") else 480,
+        "pv_fps": int(mw.pv_fps_spin.value())
+        if hasattr(mw, "pv_fps_spin") else 4,
+        "pv_quality": int(mw.pv_quality_spin.value())
+        if hasattr(mw, "pv_quality_spin") else 50,
         "healer_idx": mw.healer_idx_spin.value(),
         # Cooldown region
         "cd_region_x": int(mw.cfg.cooldown.region_x),
@@ -299,6 +305,17 @@ def load(mw):
             mw.peers_edit.setText(str(pv))
     if g("port") is not None: mw.port_spin.setValue(int(g("port")))
     if g("rate") is not None: mw.rate_spin.setValue(int(g("rate")))
+    for _key, _attr in (("pv_width", "pv_width_spin"),
+                        ("pv_fps", "pv_fps_spin"),
+                        ("pv_quality", "pv_quality_spin")):
+        if g(_key) is not None and hasattr(mw, _attr):
+            try:
+                _sp = getattr(mw, _attr)
+                _sp.blockSignals(True)
+                _sp.setValue(int(g(_key)))
+                _sp.blockSignals(False)
+            except Exception:
+                pass
     if g("healer_idx") is not None:
         try:
             mw.healer_idx_spin.setValue(int(g("healer_idx")))

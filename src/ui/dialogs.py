@@ -497,6 +497,28 @@ class NetworkDialog(QtWidgets.QDialog):
         top.addWidget(self.rate_spin, 0, 3)
         root.addLayout(top)
 
+        # 미리보기 설정 (격수가 지정 → 힐러로 전파되어 적용).
+        pv = QtWidgets.QGridLayout()
+        pv.setContentsMargins(0, 0, 0, 0)
+        self.pv_width_spin = QtWidgets.QSpinBox()
+        self.pv_width_spin.setRange(240, 1920)
+        self.pv_width_spin.setSingleStep(80)
+        self.pv_width_spin.setValue(int(getattr(cfg.net, "preview_width", 480)))
+        self.pv_fps_spin = QtWidgets.QSpinBox()
+        self.pv_fps_spin.setRange(1, 30)
+        self.pv_fps_spin.setValue(int(getattr(cfg.net, "preview_fps", 4)))
+        self.pv_quality_spin = QtWidgets.QSpinBox()
+        self.pv_quality_spin.setRange(10, 95)
+        self.pv_quality_spin.setValue(
+            int(getattr(cfg.net, "preview_quality", 50)))
+        pv.addWidget(QtWidgets.QLabel("미리보기 해상도"), 0, 0)
+        pv.addWidget(self.pv_width_spin, 0, 1)
+        pv.addWidget(QtWidgets.QLabel("FPS"), 0, 2)
+        pv.addWidget(self.pv_fps_spin, 0, 3)
+        pv.addWidget(QtWidgets.QLabel("품질%"), 0, 4)
+        pv.addWidget(self.pv_quality_spin, 0, 5)
+        root.addLayout(pv)
+
         # 중단: 힐러 목록.
         root.addWidget(QtWidgets.QLabel("힐러 목록 (닉네임 | IP)"))
         rows_container = QtWidgets.QWidget()
