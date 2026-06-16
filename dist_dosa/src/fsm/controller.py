@@ -708,10 +708,13 @@ class Follower:
             _rev = {"L": "R", "R": "L", "U": "D", "D": "U"}
             _ortho = {"L": ["U", "D"], "R": ["U", "D"],
                       "U": ["L", "R"], "D": ["L", "R"]}
-            if getattr(self, "_exit_dir_sunbi_locked", False):
-                # SUNBI z전환 확정 방향은 반대로 뒤집으면 규칙 위반((7)→로비
-                # U 확정인데 D 로 처박힘). 직교만 순환 → 출구 좌표 정렬
-                # (U 확정인데 x 어긋남 → R/L 로 통로 x 맞춤) 유도.
+            # 선비족 z전환 확정방향(7→로비 U 등)이면 반대(D)로 뒤집으면 규칙
+            # 위반 → 직교만 순환(출구 x정렬 유도). 2026-06-16: SUNBI override
+            # (_exit_map 기반 lock)는 맵전환 순간 맵명 오독 시 _exit_map 오염→
+            # 0회 발동(173446 SUNBI-EXIT 0, U→D 처박). 그래서 lock 의존 대신
+            # EXIT-FALLBACK 시점 현재 힐러맵으로 _sunbi_exit_dir 직접 재확인.
+            _sdir = self._sunbi_exit_dir(self._healer_map, self._last_map)
+            if _sdir is not None and self._exit_dir == _sdir:
                 cands = _ortho[self._exit_dir]
             else:
                 cands = [_rev[self._exit_dir]] + _ortho[self._exit_dir]
