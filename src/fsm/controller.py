@@ -708,7 +708,13 @@ class Follower:
             _rev = {"L": "R", "R": "L", "U": "D", "D": "U"}
             _ortho = {"L": ["U", "D"], "R": ["U", "D"],
                       "U": ["L", "R"], "D": ["L", "R"]}
-            cands = [_rev[self._exit_dir]] + _ortho[self._exit_dir]
+            if getattr(self, "_exit_dir_sunbi_locked", False):
+                # SUNBI z전환 확정 방향은 반대로 뒤집으면 규칙 위반((7)→로비
+                # U 확정인데 D 로 처박힘). 직교만 순환 → 출구 좌표 정렬
+                # (U 확정인데 x 어긋남 → R/L 로 통로 x 맞춤) 유도.
+                cands = _ortho[self._exit_dir]
+            else:
+                cands = [_rev[self._exit_dir]] + _ortho[self._exit_dir]
             new_dir = cands[self._exit_fallback_n % len(cands)]
             self._exit_fallback_n += 1
             self._healer_coord_progress_ts = now  # 다음 8초 재카운트
@@ -989,6 +995,13 @@ class Follower:
                         f"[SUNBI-EXIT] {self._exit_map!r}→{s.map_name!r} "
                         f"dir {self._exit_dir!r}→{sdir!r} (고정규칙)")
                 self._exit_dir = sdir
+                # 2026-06-16: z전환 확정 방향 → EXIT-FALLBACK 이 반대로 뒤집지
+                # 못하게 잠금. (7)→로비 U 확정인데 5s 정체 시 반대 D 로 뒤집어
+                # 아래로 처박던 사고(173446 [EXIT-FALLBACK] U→D). 직교(출구 x
+                # 정렬)만 허용하고 반대(규칙 위반)는 금지한다.
+                self._exit_dir_sunbi_locked = True
+            else:
+                self._exit_dir_sunbi_locked = False
             # EXIT-FALLBACK 리셋 — 새 전환 시작.
             self._exit_fallback_n = 0
             self._healer_coord_progress_ts = now
