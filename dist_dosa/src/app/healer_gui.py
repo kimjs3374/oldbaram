@@ -92,6 +92,14 @@ def _auto_update():
 
 
 def main():
+    # pythonw(콘솔 없는 실행)에서 sys.stdout/stderr 가 None → print 크래시 방지.
+    # 로그는 logger_setup 의 FileHandler 로 남으므로 콘솔 출력만 devnull 로 흘림.
+    if sys.stdout is None or sys.stderr is None:
+        _devnull = open(os.devnull, "w")
+        if sys.stdout is None:
+            sys.stdout = _devnull
+        if sys.stderr is None:
+            sys.stderr = _devnull
     # 2026-06-15: 무엇보다 먼저 자동 업데이트 (옛 버전 고착 방지).
     _auto_update()
     # 2026-06-13 항목8: 시작 시 닉네임/역할 선택 다이얼로그 제거 →

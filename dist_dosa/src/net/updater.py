@@ -67,7 +67,7 @@ def make_apply_script(new_version: int) -> pathlib.Path:
         f'echo {int(new_version)}> "{_VERSION_FILE}"\r\n'
         f'rmdir /s /q "{_STAGING}"\r\n'
         f'cd /d "{ROOT}"\r\n'
-        'start "" py -m src.app.healer_gui\r\n',
+        'start "" pyw -m src.app.healer_gui\r\n',
         encoding="utf-8",
     )
     return bat
@@ -78,6 +78,6 @@ def launch_apply_and_exit(new_version: int) -> pathlib.Path:
     bat = make_apply_script(new_version)
     subprocess.Popen(
         ["cmd", "/c", str(bat)],
-        creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     return bat
