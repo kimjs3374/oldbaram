@@ -3779,6 +3779,27 @@ class HealerWorker(QtCore.QThread):
                     f"MAP-JUMP-HOLD STAY "
                     f"remain={(self._map_jump_hold_until-now_jg):.2f}s"
                 )
+        # 2026-06-16 추종 재설계 (근본): 같은 맵에서도 격수 trail(발자국) 우선.
+        # 기존엔 같은 맵 = B3 직선 to_target 뿐 → 5층 미로서 격수가 우회한 벽에
+        # 직진 박혀 STUCK-ALIGN 596 폭발(따라오다 멈춤·사냥 느림·파력 dist 실패).
+        # feedback_route_trail "격수 경로 그대로 밟기, 지름길 금지" 정책을 같은 맵
+        # 추종에도 적용. 격수가 2칸 초과로 멀면 trail wp 따라(격수가 통과한 통로라
+        # 안 막힘). 격수 근접(≤2)이면 아래 기존 뒤 N칸 직선(자연스러운 뒤따름).
+        # trail wp 없으면(미기록) 아래 직선 fallback. 방향산출은 B1(검증된 로직) 동일.
+        if h is not None and a_valid:
+            _hx, _hy = h
+            if abs(atk.x - _hx) + abs(atk.y - _hy) > 2:
+                _twp = fol.next_waypoint(self.healer_map, h, tol=1,
+                                         exit_dash=False)
+                if _twp is not None:
+                    (_wx, _wy), _ = _twp
+                    _dx, _dy = _wx - _hx, _wy - _hy
+                    if _dx != 0 or _dy != 0:
+                        if abs(_dx) >= abs(_dy):
+                            _w = "R" if _dx > 0 else "L"
+                        else:
+                            _w = "D" if _dy > 0 else "U"
+                        return _w, f"B3T:TRAIL→{(_wx,_wy)} d=({_dx},{_dy})"
         # 2026-04-23 추종 거리 정책화: atk_dir 복제 대신 "격수 뒤 N칸" 가상
         # 타겟으로 이동. atk_dir 복제는 힐러가 격수와 동일/앞 좌표에서도 같은
         # 방향으로 전진해 앞지름 → 몹 어그로 끌기 (힐러1.txt 10:29:05 재현).
