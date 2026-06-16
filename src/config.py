@@ -3,6 +3,11 @@ from pathlib import Path
 from dataclasses import dataclass, field
 import yaml
 
+# ROOT = src 의 부모.
+#  - 일반 실행: 저장소 루트(D:\oldbaram / C:\ob_sunbi).
+#  - PyInstaller onedir exe: <exe폴더>/_internal.
+#    다른 모듈들도 Path(__file__).parents[2] 로 같은 _internal 을 ROOT 로 보므로
+#    dataset/maps/knownmaps/portals/config.yaml 을 _internal 에 동봉하면 전부 일관.
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CFG = ROOT / "config.yaml"
 

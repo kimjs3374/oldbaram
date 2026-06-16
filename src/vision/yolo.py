@@ -10,12 +10,11 @@ from pathlib import Path
 from typing import Optional, List, Tuple
 
 import numpy as np
-from ultralytics import YOLO
 
-try:
-    import torch  # ultralytics 내부 의존성. device 확인용.
-except Exception:
-    torch = None
+# 2026-06-16 exe 경량화: ultralytics(=torch 1.1GB) 를 모듈 로드 시 import 하지 않는다.
+# device=-1/cpu(선비족 기본) 경로는 OnnxYolo(onnxruntime 직접)로 위임 → torch 미수집.
+# GPU dev 경로(device>=0)에서만 __init__ 안에서 lazy import 한다.
+torch = None  # pytorch 경로에서만 lazy 채움. onnx 경로는 None 유지.
 
 
 # nc=2 클래스 매핑
@@ -74,27 +73,41 @@ class YoloRunner:
     def __init__(self, weights: str, imgsz: int = 640, conf: float = 0.25,
                  iou: float = 0.5, half: bool = True, device: int = 0,
                  log_fn=None):
+        global torch
+        self._onnx = False
+        self._impl = None
         w = Path(weights)
+        # device=-1/cpu 명시면 CUDA 체크 없이 즉시 CPU 결정 → torch import 회피.
+        # (선비족 config.vision.device=-1 기본. exe 빌드는 이 경로만 탐.)
+        device_is_cpu = str(device).strip().lower() in ("cpu", "-1")
+        if device_is_cpu:
+            cuda_ok = False
+        else:
+            # GPU 요청(device>=0) 일 때만 torch lazy import 후 CUDA 가용 확인.
+            try:
+                import torch as _torch  # noqa
+                torch = _torch
+                cuda_ok = bool(torch.cuda.is_available())
+            except Exception:
+                torch = None
+                cuda_ok = False
+        want_cpu = (not cuda_ok) or device_is_cpu
+        # CPU 경로: onnxruntime 직접 추론(OnnxYolo)으로 위임. ultralytics/torch 미사용.
+        if want_cpu:
+            from .yolo_onnx import OnnxYolo
+            self._impl = OnnxYolo(str(w), imgsz=imgsz, conf=conf, iou=iou,
+                                  log_fn=log_fn)
+            self._onnx = True
+            self._backend = "onnx-direct"
+            self.imgsz = imgsz; self.conf = conf; self.iou = iou
+            self.half = False; self.device = "cpu"
+            return
+        # --- 이하 PyTorch GPU 경로 (device>=0 & CUDA 가용 시에만 도달) ---
+        from ultralytics import YOLO
         if not w.exists():
             raise FileNotFoundError(f"weights not found: {w}")
-        # 백엔드 자동 선택 (2026-06-09): CUDA 가용 → PyTorch+GPU.
-        # CUDA 없음(또는 device='cpu'/-1) → 형제 .onnx 를 ONNX Runtime CPU 로.
-        # GPU 없는 저사양 PC(i5-6600 등) 지원. ONNX CPU 는 PyTorch CPU 대비
-        # 9~10배 빠름 (실측 2026-06-09: yolov8s imgsz320 PyTorch 129ms→ONNX 13ms).
-        cuda_ok = bool(torch.cuda.is_available()) if torch is not None else False
-        want_cpu = (not cuda_ok) or (str(device).strip().lower() in ("cpu", "-1"))
         chosen = w
         self._backend = "pytorch"
-        if want_cpu:
-            if w.suffix.lower() == ".onnx":
-                chosen, self._backend = w, "onnx"
-            else:
-                onnx_sib = w.with_suffix(".onnx")
-                if onnx_sib.exists():
-                    chosen, self._backend = onnx_sib, "onnx"
-                else:
-                    # .onnx 동봉 안 됨 → PyTorch CPU 폴백 (느림). 경고로 노출.
-                    self._backend = "pytorch-cpu"
         # cudnn.benchmark: CUDA(PyTorch GPU) 경로에서만 의미. 입력 크기 고정 시
         # 최적 kernel 캐시 (fp16 JIT 반복 감소). CPU/ONNX 경로에선 무관.
         # Patch 2.19: TensorRT engine 자동탐지 폐기 유지 (기계종속 스파이크).
@@ -181,6 +194,9 @@ class YoloRunner:
                                   device=self.device, verbose=False)[0]
 
     def detect(self, frame: np.ndarray) -> List[Detection]:
+        # onnx-direct 위임 경로 (선비족/CPU 빌드). torch 무관.
+        if self._onnx:
+            return self._impl.detect(frame)
         # 30 프레임마다 1회 상세 분해 타이머. 총시간·프레임크기·GPU% 확인용.
         profile = (
             self._profile_log_fn is not None

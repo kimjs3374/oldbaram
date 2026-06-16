@@ -1068,19 +1068,22 @@ class HealerWorker(QtCore.QThread):
                       f"method={cfg.input.method}")
         self.log.info(f"cfg.net port={cfg.net.port} "
                       f"bind={cfg.net.bind_host}")
+        # 추론 백엔드 진단. exe 경량 빌드는 onnxruntime CPU 전용(torch 미동봉).
         try:
-            import torch
+            import onnxruntime as _ort
+            self.log.info(f"[ENV] onnxruntime={_ort.__version__} "
+                          f"providers={_ort.get_available_providers()}")
+            self.log_msg.emit("[ENV] backend=onnxruntime CPU")
+        except Exception as e:
+            self.log.exception(f"onnxruntime 확인 실패: {e}")
+        try:
+            import torch  # GPU dev 환경에서만 존재. 경량 빌드엔 없음(정상).
             cuda_ok = torch.cuda.is_available()
             dev_name = torch.cuda.get_device_name(0) if cuda_ok else "CPU"
-            ver = torch.__version__
-            bcu = getattr(torch.version, "cuda", None)
-            self.log.info(f"[ENV] torch={ver} cuda_available={cuda_ok} "
-                          f"built_cuda={bcu} device={dev_name}")
-            self.log_msg.emit(f"[ENV] torch.cuda={cuda_ok} device={dev_name}")
-            if not cuda_ok:
-                self.log.warning("[ENV] CUDA 없음 → CPU 추론. FPS 낮음.")
-        except Exception as e:
-            self.log.exception(f"torch 확인 실패: {e}")
+            self.log.info(f"[ENV] torch={torch.__version__} cuda_available={cuda_ok} "
+                          f"built_cuda={getattr(torch.version, 'cuda', None)} device={dev_name}")
+        except Exception:
+            self.log.info("[ENV] torch 미설치 → onnxruntime 전용 빌드(정상)")
         try:
             hwnd = None
             if cfg.input.target_window.lower().endswith(".exe"):
