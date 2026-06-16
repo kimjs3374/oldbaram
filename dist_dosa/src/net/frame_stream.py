@@ -177,12 +177,14 @@ class FrameSender:
 class FrameReceiver:
     """격수측: TCP 서버. 힐러 연결마다 스레드, 프레임 디코드 → 콜백.
 
-    on_frame(idx: int, nick: str, frame_bgr: np.ndarray) 는 **수신 스레드**에서
-    호출된다. UI 갱신은 콜백 안에서 Qt signal 로 넘길 것 (직접 위젯 조작 금지).
+    on_frame(src_ip: str, idx: int, nick: str, frame_bgr: np.ndarray) 는 **수신
+    스레드**에서 호출된다. 셀 구분 키는 **송신 IP**(여러 힐러의 healer_idx 가 전부
+    0이어도 IP는 PC마다 고유 — v91 CooldownReport 와 동일 원칙). idx/nick 은 표시용.
+    UI 갱신은 콜백 안에서 Qt signal 로 넘길 것 (직접 위젯 조작 금지).
     """
 
     def __init__(self, bind_host: str, port: int,
-                 on_frame: Callable[[int, str, np.ndarray], None], log=None):
+                 on_frame: Callable[[str, int, str, np.ndarray], None], log=None):
         self._bind = (str(bind_host or "0.0.0.0"), int(port))
         self._on_frame = on_frame
         self._log = log
@@ -257,7 +259,8 @@ class FrameReceiver:
                     arr = None
                 if arr is not None:
                     try:
-                        self._on_frame(int(idx), nick, arr)
+                        src_ip = addr[0] if addr else ""
+                        self._on_frame(str(src_ip), int(idx), nick, arr)
                     except Exception:
                         pass
         finally:
