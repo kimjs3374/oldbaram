@@ -3436,16 +3436,31 @@ class HealerWorker(QtCore.QThread):
                     f"atk=({atk.x},{atk.y}) dur={dur:.1f}s")
             return "-", (f"STUCK-HOLD 격수정렬+{want}막힘 대기 "
                          f"h={h} atk=({atk.x},{atk.y})")
+        # 2026-06-16: 맵전환 중(map_neq)엔 격수가 이미 다음 맵에 있어 atk 좌표로
+        # 우회축을 정하면 출구 반대로 처박힘. (7)→로비 출구(6,0)는 위인데 격수가
+        # 로비 좌표(25,7)라 "아래"로 판단→D 우회→출구 정반대로 내려감(163713 로그
+        # L→D→U 진동, 사용자 "위로 나가야는데 아래로"). → 출구좌표(exit_coord)
+        # 기준으로 우회축 결정. 같은맵 추종(map_neq=False)은 기존대로 격수 기준.
+        _exy = None
+        if map_neq:
+            try:
+                _exy = fol.exit_coord()
+            except Exception:
+                _exy = None
         if want in ("L", "R"):
-            # Y축으로 풀이. 1차 = 격수 y 방향, 2차 = 반대
-            if a_valid and atk.y != hy:
+            # Y축으로 풀이. 1차 = 출구(맵전환 시) 또는 격수 y 방향, 2차 = 반대
+            if _exy is not None and _exy[1] != hy:
+                ortho1 = "D" if _exy[1] > hy else "U"
+            elif a_valid and atk.y != hy:
                 ortho1 = "D" if atk.y > hy else "U"
             else:
                 ortho1 = "U"  # 격수와 같은 y거나 격수 무효 → 기본 U
             ortho2 = "D" if ortho1 == "U" else "U"
         else:  # U/D
-            # X축으로 풀이. 1차 = 격수 x 방향, 2차 = 반대
-            if a_valid and atk.x != hx:
+            # X축으로 풀이. 1차 = 출구(맵전환 시) 또는 격수 x 방향, 2차 = 반대
+            if _exy is not None and _exy[0] != hx:
+                ortho1 = "R" if _exy[0] > hx else "L"
+            elif a_valid and atk.x != hx:
                 ortho1 = "R" if atk.x > hx else "L"
             else:
                 ortho1 = "R"

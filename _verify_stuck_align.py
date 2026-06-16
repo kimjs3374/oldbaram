@@ -109,6 +109,20 @@ w, r = call(mk_self(9, 16, "U", 1.5), "U", atk, fol_nw)
 check("격수원거리 x정렬+U막힘 → HOLD 금지(우회)", "HOLD" not in r,
       f"got {w} ({r})")
 
+# ⑩ 맵전환 출구 우회(163713 버그): map_neq=True, 출구(6,0) 위, 격수는 이미
+#    다음맵 좌표(25,7). L막힘 → 격수기준이면 D(아래=출구반대로 처박힘),
+#    출구기준이면 U. → U 여야(사용자 "(7)에서 위로 나가야는데 아래로").
+fol_ex = SimpleNamespace(_map_trail={}, _grid=None, exit_coord=lambda: (6, 0))
+atk = SimpleNamespace(x=25, y=7, coord_valid=True)
+w, r = HealerWorker._apply_stuck_filter(
+    mk_self(7, 2, "L", 1.0), "L", "r", atk, fol_ex, True)
+check("map_neq 출구위(6,0)+L막힘 → 출구기준 U우회(D아님)", w == "U",
+      f"got {w} ({r})")
+# ⑩b 같은맵(map_neq=False)은 기존대로 격수 기준 (출구 무시)
+atk = SimpleNamespace(x=7, y=20, coord_valid=True)  # 격수 아래(y20>hy2)
+w, r = call(mk_self(7, 2, "L", 1.0), "L", atk, fol_ex)  # map_neq=False
+check("같은맵 L막힘 → 격수기준 D우회(출구 무시)", w == "D", f"got {w} ({r})")
+
 print()
 print("RESULT:", "ALL PASS" if not fails else f"FAIL {fails}")
 sys.exit(1 if fails else 0)
