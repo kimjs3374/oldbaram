@@ -34,4 +34,7 @@ psutil
 PyYAML==6.0.2
 
 # --- 패키징 ---
+# 정본: Nuitka(소스 C 컴파일=디컴파일 불가). build_nuitka.bat 참조.
+# PyInstaller 는 바이트코드라 디컴파일 가능 → 소스보호엔 부적합(대안용으로만 유지).
+nuitka==4.1.2
 pyinstaller==6.11.1
