@@ -61,6 +61,12 @@ class NetCfg:
     healer_idx: int = 0
     # v5: 격수 쿨다운 보고 수신 포트 (힐러→격수 역방향). 송신 포트와 별개.
     attacker_recv_port: int = 45455
+    # 격수 미리보기: 힐러 게임화면 썸네일 TCP 스트림 (힐러→격수). UDP와 분리.
+    preview_enabled: bool = True
+    preview_port: int = 45456     # 격수가 TCP listen, 힐러가 connect.
+    preview_fps: int = 4          # 초당 전송 프레임 (대역폭/부드러움 trade-off).
+    preview_width: int = 480      # 다운스케일 폭(px). 높이는 비율 유지.
+    preview_quality: int = 50     # JPEG 품질(0~100).
 
 
 @dataclass

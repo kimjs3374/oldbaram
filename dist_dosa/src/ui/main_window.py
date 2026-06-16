@@ -111,6 +111,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._heartbeat: Optional[HealerHeartbeat] = None
         # 격수 상시 heartbeat (워커 전에도 ping + CooldownReceiver).
         self._attacker_hb: Optional[AttackerHeartbeat] = None
+        # 격수 미리보기: 힐러 화면 TCP 수신 + 독립 표시 창.
+        self._preview_recv = None
+        self._preview_win = None
         self._build_ui()
         self._wire_dialogs()
         self._load_settings()
@@ -3918,8 +3921,49 @@ class MainWindow(QtWidgets.QMainWindow):
             f"[ATK-HB] 격수 heartbeat 시작 → {self.cfg.net.peers}:"
             f"{self.cfg.net.port}"
         )
+        try:
+            self._start_preview_receiver()
+        except Exception as e:
+            self._append_log(f"[PREVIEW] 수신 시작 실패: {e}")
+
+    def _start_preview_receiver(self) -> None:
+        """격수 미리보기 TCP 수신 + 독립 창 기동 (격수 모드 전용)."""
+        if not getattr(self.cfg.net, "preview_enabled", True):
+            return
+        if self._preview_recv is not None:
+            self._preview_win.show()
+            self._preview_win.raise_()
+            return
+        from ..net.frame_stream import FrameReceiver
+        from .healer_preview_window import HealerPreviewWindow
+        # parent=self → 메인 윈도우 종료 시 함께 파괴(좀비 창 방지).
+        self._preview_win = HealerPreviewWindow(self)
+        port = int(getattr(self.cfg.net, "preview_port", 45456))
+        bind = getattr(self.cfg.net, "bind_host", "0.0.0.0")
+        self._preview_recv = FrameReceiver(
+            bind, port, on_frame=self._preview_win.on_frame, log=None,
+        )
+        self._preview_recv.start()
+        self._preview_win.show()
+        self._append_log(f"[PREVIEW] 힐러 미리보기 수신 시작 (TCP :{port})")
+
+    def _stop_preview_receiver(self) -> None:
+        try:
+            if self._preview_recv is not None:
+                self._preview_recv.stop()
+        except Exception:
+            pass
+        self._preview_recv = None
+        try:
+            if self._preview_win is not None:
+                self._preview_win.hide()
+        except Exception:
+            pass
 
     def _stop_attacker_heartbeat(self) -> None:
+        # 미리보기는 heartbeat 생명주기와 분리. 워커 시작 시 heartbeat는 포트를
+        # 워커에 넘기려 stop되지만, preview는 별도 포트(45456)라 무관 → 계속 유지.
+        # (워커 가동 중이 정작 힐러 화면을 봐야 할 때다.) 정리는 프로그램 종료시.
         if self._attacker_hb is None:
             return
         try:
