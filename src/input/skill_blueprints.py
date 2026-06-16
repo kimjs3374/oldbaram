@@ -354,6 +354,12 @@ def default_skills(parlyuk_offset_sec: float = 0.0,
         verify_kind="buff",
         verify_target="파력무참",
         retry_until_ready=True,
+        # 2026-06-16: 지정굴 파력 씹힘 근본 — burst 2s 동안 추종 이동(방향키
+        # hold L→U→R 바뀜)이 계속되면 게임이 파력 키(NUMPAD8)를 씹어 안 나감
+        # (실증: PARK=정지 시 val=42 성공, 이동중 val=0 2연속 실패). burst
+        # 동안 이동 정지 → 파력 키만 들어가 확실 시전. 격수 dist≤2 밀착에서
+        # 쏘므로 2s 정지 영향 미미.
+        blocks_movement=True,
         priority=10,
     ))
 
