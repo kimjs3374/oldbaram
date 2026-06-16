@@ -360,6 +360,7 @@ class HealerWorker(QtCore.QThread):
         self._no_state_warn_ts = 0.0  # 격수 State 미수신 경고 스로틀.
         # 원격 제어 수신용 sender (힐러→격수 쿨다운 보고에도 동일 소켓 공유).
         self._udp_out = None
+        self._frame_sender = None   # 격수 미리보기 TCP 스트림 송신기.
         self._attacker_addr = None  # recv_from src_ip + attacker_recv_port.
         # 영역 설정 (절대 화면 좌표). game만 지정 시 YOLO 추론 크롭.
         self._game_region_abs: Optional[Tuple[int, int, int, int]] = None
@@ -1618,6 +1619,23 @@ class HealerWorker(QtCore.QThread):
             # 힐러→격수 쿨다운 보고용 sender (송신 IP=recv src, port=cfg).
             from ..net.udp_sender import UdpSender
             self._udp_out = UdpSender([], 0)  # send_to 단일 송신 전용.
+            # 격수 미리보기 화면 스트림 송신기 (TCP, UDP와 분리). 격수 IP는
+            # 루프에서 recv.last_src_addr()로 확보되면 set_target() 으로 지정.
+            if getattr(cfg.net, "preview_enabled", True):
+                try:
+                    from ..net.frame_stream import FrameSender
+                    self._frame_sender = FrameSender(
+                        idx=int(getattr(cfg.net, "healer_idx", 0)),
+                        port=int(getattr(cfg.net, "preview_port", 45456)),
+                        fps=float(getattr(cfg.net, "preview_fps", 4)),
+                        width=int(getattr(cfg.net, "preview_width", 480)),
+                        quality=int(getattr(cfg.net, "preview_quality", 50)),
+                        nickname=f"힐러{int(getattr(cfg.net,'healer_idx',0))+1}",
+                        log=self.log,
+                    )
+                except Exception as _e:
+                    self._frame_sender = None
+                    self.log.info(f"[PREVIEW-SEND] 비활성 ({_e})")
             # OCR 스레드 staggered 시작. 동시에 start 하면 predict 주기가 겹쳐
             # GIL 구간 경합 → main thread 기아. 0.25s 오프셋으로 타이밍 분산.
             import time as _time
@@ -1667,7 +1685,18 @@ class HealerWorker(QtCore.QThread):
                 frame = grab.grab()
                 self.t_grab = (time.perf_counter() - t1) * 1000
                 H, W = frame.shape[:2]
-    
+
+                # 격수 미리보기: 격수 IP 확보 시 최신 프레임 참조만 넘김(블로킹 0).
+                # 실제 resize/JPEG/전송은 FrameSender 스레드가 fps 주기로 수행.
+                if self._frame_sender is not None:
+                    try:
+                        _pv_src = recv.last_src_addr()
+                        if _pv_src is not None:
+                            self._frame_sender.set_target(_pv_src[0])
+                            self._frame_sender.submit(frame)
+                    except Exception:
+                        pass
+
                 frame_idx += 1
                 yn = max(1, self.yolo_every_n)
                 # 게임영역 기반 크롭 (YOLO + preview 공통). 매 프레임 계산.
@@ -2976,6 +3005,11 @@ class HealerWorker(QtCore.QThread):
             except Exception:
                 pass
             try:
+                if self._frame_sender is not None:
+                    self._frame_sender.stop()
+            except Exception:
+                pass
+            try:
                 yolo_async.stop()
             except Exception:
                 pass
@@ -3370,7 +3404,14 @@ class HealerWorker(QtCore.QThread):
         # 격수 반대로 가 STUCK-ALIGN↔ORTHO 진동(1737회/23분 주범). 대기로
         # 바꿔 멀어지지 않게 — 격수가 사냥 중 움직이면 추종 재개. 3.0s+ 면
         # 아래 RESET 로 폴백(진짜 끼임 대비).
-        _aligned = (a_valid and (
+        # 2026-06-16(2차): v99 HOLD가 격수가 추종축으로 멀리(4칸) 있을 때도
+        # 대기시켜 추종실패("격수 움직이는데 힐러 멈춤") 유발 → HOLD 는 격수
+        # 근접(추종축 거리 ≤2칸)일 때만. 멀면 ORTHO 우회로 추종.
+        if want in ("U", "D"):
+            _follow_dist = abs(atk.y - hy) if a_valid else 99
+        else:
+            _follow_dist = abs(atk.x - hx) if a_valid else 99
+        _aligned = (a_valid and _follow_dist <= 2 and (
             (want in ("U", "D") and atk.x == hx) or
             (want in ("L", "R") and atk.y == hy)))
         if _aligned and dur < 3.0:
