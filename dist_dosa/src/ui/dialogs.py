@@ -102,13 +102,12 @@ class SkillDialog(QtWidgets.QDialog):
         sl2.addWidget(QtWidgets.QLabel("파력무참 오프셋(s)"),
                       len(defaults), 0)
         sl2.addWidget(self.parlyuk_spin, len(defaults), 1, 1, 2)
-        # 파력무참 시전 굴 (2026-06-17 굴번호 기준): 맵명 하이픈 뒤 굴번호 목록.
+        # 파력무참 시전 굴: 맵명 끝 (N)=층(끝괄호) 목록. 사용자 단언=층(z) 기준.
         self.parlyuk_maps_edit = QtWidgets.QLineEdit()
         self.parlyuk_maps_edit.setPlaceholderText("예: 3,5 (비우면 전체 굴)")
         self.parlyuk_maps_edit.setToolTip(
-            "파력무참을 특정 굴에서만 시전. 맵명 '제2선비족x-N(z)' 의 굴번호 N "
-            "을 쉼표로. 끝괄호(z)=층(lap)은 무관 → 그 굴의 모든 lap 에서 시전.\n"
-            "예: '3' → 제2선비족5-3(1)~(7), 4-3(z) 모두 시전. 비우면 전체 굴."
+            "파력무참을 특정 층에서만 시전. 맵명 끝 (N) 의 N(층/끝괄호) 을 쉼표로.\n"
+            "예: '3,5' → 선비족x-x(3), 선비족x-x(5) 층에서만. 비우면 전체."
         )
         sl2.addWidget(QtWidgets.QLabel("파력무참 시전 굴"),
                       len(defaults) + 1, 0)
