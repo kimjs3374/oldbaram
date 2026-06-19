@@ -3787,12 +3787,14 @@ class HealerWorker(QtCore.QThread):
         # 기존엔 같은 맵 = B3 직선 to_target 뿐 → 5층 미로서 격수가 우회한 벽에
         # 직진 박혀 STUCK-ALIGN 596 폭발(따라오다 멈춤·사냥 느림·파력 dist 실패).
         # feedback_route_trail "격수 경로 그대로 밟기, 지름길 금지" 정책을 같은 맵
-        # 추종에도 적용. 격수가 2칸 초과로 멀면 trail wp 따라(격수가 통과한 통로라
-        # 안 막힘). 격수 근접(≤2)이면 아래 기존 뒤 N칸 직선(자연스러운 뒤따름).
-        # trail wp 없으면(미기록) 아래 직선 fallback. 방향산출은 B1(검증된 로직) 동일.
+        # 추종에도 적용. 격수가 2칸 이상 떨어지면(dist>1) trail wp 따라(격수가
+        # 통과한 통로라 안 막힘). 바로 옆(dist≤1)만 아래 직선(자연스러운 뒤따름).
+        # 2026-06-19: 기존 dist>2 는 격수 2칸 근접 시 직선만 타다 막혀 STUCK-HOLD
+        # 24건 전부 dist=2(격수정렬+직선막힘, h=(3,10) atk=(5,10) 등)로 멈춤 →
+        # dist>1 로 넓혀 2칸도 발자국 우회. trail 없으면 직선 fallback(악화불가).
         if h is not None and a_valid:
             _hx, _hy = h
-            if abs(atk.x - _hx) + abs(atk.y - _hy) > 2:
+            if abs(atk.x - _hx) + abs(atk.y - _hy) > 1:
                 _twp = fol.next_waypoint(self.healer_map, h, tol=1,
                                          exit_dash=False)
                 if _twp is not None:
