@@ -700,11 +700,23 @@ class Follower:
         #       그다음 직교 2방향 순환. 좌표 진행/맵 일치 시 자동 리셋.
         _mapneq_now = bool(self._healer_map and self._last_map
                            and self._healer_map != self._last_map)
+        # 2026-06-19: 출구 직전(exit_coord 2칸 이내)이면 방향 교체가 출구서
+        # 멀어지게 함(출구는 1칸 직진뿐) → EXIT-FALLBACK skip, exit_dir 유지.
+        # (7)→로비 출구(6,0) 직전 (6,1) 몹/타힐러 막힘에 직교로 헛돌던 것(120
+        # 로그 12:49~50) 차단. 장애물 풀리면 그 방향 통과(STUCK-WAIT healer 가
+        # 대기 담당). progress_base(최근 힐러좌표)로 근접 판정.
+        _near_exit_fb = False
+        _hcb = self._healer_coord_progress_base
+        if self._exit_coord is not None and _hcb is not None:
+            if (abs(_hcb[0] - self._exit_coord[0])
+                    + abs(_hcb[1] - self._exit_coord[1])) <= 2:
+                _near_exit_fb = True
         if not _mapneq_now:
             self._exit_fallback_n = 0
         elif (self._exit_dir in ("L", "R", "U", "D")
               and now - self._healer_coord_progress_ts
-              >= self._exit_fallback_sec):
+              >= self._exit_fallback_sec
+              and not _near_exit_fb):
             _rev = {"L": "R", "R": "L", "U": "D", "D": "U"}
             _ortho = {"L": ["U", "D"], "R": ["U", "D"],
                       "U": ["L", "R"], "D": ["L", "R"]}

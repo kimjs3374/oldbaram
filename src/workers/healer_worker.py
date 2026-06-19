@@ -3393,7 +3393,19 @@ class HealerWorker(QtCore.QThread):
         try:
             _wd = {"L": (-1, 0), "R": (1, 0),
                    "U": (0, -1), "D": (0, 1)}.get(want)
-            if _wd is not None and dur < 3.0:
+            # 2026-06-19: 출구 직전(exit_coord 2칸 이내)이면 우회 무의미(출구는 그
+            # 방향 1칸뿐) → 일시장애물(몹/타힐러) 대기 한도 3→10s 연장. (7)→로비
+            # 출구(6,0) 직전 (6,1) 몹/캐릭 막힘에 직교우회로 헛돌던 것(120 로그
+            # 12:49~50) 차단. 풀리면 즉시 통과. 일반 통로는 3s 후 우회 유지.
+            _wait_lim = 3.0
+            try:
+                _exy2 = fol.exit_coord()
+                if (_exy2 is not None
+                        and abs(hx - _exy2[0]) + abs(hy - _exy2[1]) <= 2):
+                    _wait_lim = 10.0
+            except Exception:
+                pass
+            if _wd is not None and dur < _wait_lim:
                 _nx, _ny = hx + _wd[0], hy + _wd[1]
                 _tr = getattr(fol, "_map_trail", {}).get(self.healer_map)
                 # 학습된 벽(maps blocked/격수 막힘률)이면 통행 trail이어도 대기
