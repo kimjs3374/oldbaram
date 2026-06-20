@@ -3795,38 +3795,16 @@ class HealerWorker(QtCore.QThread):
                     f"MAP-JUMP-HOLD STAY "
                     f"remain={(self._map_jump_hold_until-now_jg):.2f}s"
                 )
-        # 2026-06-20 추종 재설계 v2 (사용자 "좌표 아는데 왜 삥 도냐"):
-        # 6/16 의 "무조건 trail" 은 격수 과거 발자국만 순서대로 밟아 격수가 움직이면
-        # 구조적으로 못 따라잡고 뒤처짐(36 로그 dist 3~5칸 861/2000, 파력 dist≤2
-        # 미충족 → (3)층 26회 전부 접근실패). 좌표 공유로 격수 현재 위치를 아는데
-        # 발자국 빙 도는 게 비효율. → 격수 방향 **직선이 grid상 안 막혔으면 직선
-        # (지름길)**, 막혔을 때만 trail 우회. is_wall(학습 벽/격수막힘률) 데이터
-        # 없으면 False=직선 시도(안전). 이러면 벽없는데 빙돌기 + 벽있는데 직진박기
-        # 둘 다 해결. 6/16 trail-only 의 STUCK-ALIGN 해결은 "막힌 축만 trail" 로 유지.
+        # 같은 맵에서도 격수 trail(발자국) 우선 추종. 격수가 우회한 통로를 그대로
+        # 밟아 미로 벽 STUCK 회피(B3T:TRAIL). 격수 2칸 이상 떨어지면 발동, 바로
+        # 옆(≤1)은 아래 직선. trail 없으면 직선 fallback.
+        # 🔴 2026-06-20 v113 롤백: B3D:DIRECT(격수 직선 지름길, is_wall 안막히면
+        # 직진)를 넣었다가 STUCK-ALIGN 83→294(3.5배) 악화로 즉시 복원. is_wall
+        # 학습 데이터 부족(maps blocked 거의 빔) → "안 막힌 줄 알고 직진→실제벽
+        # 박힘→STUCK" 반복. 격수가 검증한 trail 이 더 안전. 직선 지름길 재시도 금지.
         if h is not None and a_valid:
             _hx, _hy = h
-            _adx, _ady = atk.x - _hx, atk.y - _hy
-            if abs(_adx) + abs(_ady) > 1:
-                # 격수 방향 주축(델타 큰 쪽) 직선 후보.
-                if abs(_adx) >= abs(_ady) and _adx != 0:
-                    _dir1 = "R" if _adx > 0 else "L"
-                elif _ady != 0:
-                    _dir1 = "D" if _ady > 0 else "U"
-                else:
-                    _dir1 = "R" if _adx > 0 else "L"
-                # grid 에서 그 방향이 학습된 벽인지 조회.
-                _blocked_dir = False
-                try:
-                    _g = getattr(fol, "_grid", None)
-                    if _g is not None:
-                        _blocked_dir = _g.is_wall(self.healer_map, _hx, _hy, _dir1)
-                except Exception:
-                    _blocked_dir = False
-                if not _blocked_dir:
-                    # 직선 통로 — 격수 쪽으로 직진(지름길).
-                    return _dir1, (f"B3D:DIRECT→atk({atk.x},{atk.y}) "
-                                   f"d=({_adx},{_ady}) dir={_dir1}")
-                # 직선 막힘 → trail(격수가 우회한 통로) 따라.
+            if abs(atk.x - _hx) + abs(atk.y - _hy) > 1:
                 _twp = fol.next_waypoint(self.healer_map, h, tol=1,
                                          exit_dash=False)
                 if _twp is not None:
