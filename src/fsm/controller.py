@@ -291,6 +291,15 @@ class Follower:
     # 6→7 L, 7→로비 U. 추정(global/boundary/portal-db)을 최종 override.
     _SUNBI_Z_EXIT = {1: "R", 2: "U", 3: "U", 4: "U", 5: "L", 6: "L", 7: "U"}
     _SUNBI_Z_RE = re.compile(r"(?:제2)?선비족\d+-\d+\((\d+)\)\s*$")
+    # 2026-06-20: 맵 학습(trail/grid) 저장 게이트용 구조 검증. 입구/허브/굴 정상
+    # 구조만 통과 → OCR 오독('거적데기 백호의희원 3초' 등 27/233 파일 오염)이
+    # maps/*.json 으로 저장되는 것 차단. ocr._SUNBI_MAP_RE 와 동일 패턴.
+    _SUNBI_VALID_RE = re.compile(
+        r"^(?:제2)?선비족(?:입구|\d+방?|\d+(?:-\d+)?(?:\(\d+\))?)$")
+
+    @classmethod
+    def _is_valid_sunbi_map(cls, m: str) -> bool:
+        return bool(m) and bool(cls._SUNBI_VALID_RE.match(m))
 
     @classmethod
     def _sunbi_exit_dir(cls, prev_map, new_map):
@@ -770,8 +779,10 @@ class Follower:
                 self._last_coord_change = now
                 self._last_coord = coord
                 self._coord_hist.append((now, coord))
-            if s.map_name:
+            if s.map_name and self._is_valid_sunbi_map(s.map_name):
                 # B안 필터 — 비정상 push 거부.
+                # 2026-06-20: 맵명 구조검증 게이트 추가 — OCR 오독('거적데기
+                # 백호의희원 3초' 등)이 trail/grid(maps/*.json) 오염시키던 것 차단.
                 push_ok = True
                 reject_reason = ""
                 trail = self._map_trail.get(s.map_name)
