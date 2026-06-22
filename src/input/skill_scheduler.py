@@ -163,6 +163,32 @@ class SkillScheduler(threading.Thread):
                 self._log(f"[SKILL] cast 예외 vk={hex(vk)}: {e}")
             time.sleep(max(0.02, float(interval)))
 
+    def _press_burst_locked(self, sk: "SkillSpec", lock_on: bool):
+        """blocks_movement 스킬: burst(키입력) 순간만 이동잠금 ON/OFF.
+
+        2026-06-22: 기존엔 _cast_with_retry 진입~종료(retry_until_ready 최대
+        12초)를 통째로 잠가, 파력무참 verify 실패(val=0) 시 힐러가 12초 가만히
+        서있고 격수가 도망(224958 로그 LOCK-STUCK 10s). lock 을 burst 동안만
+        걸고 verify 대기·retry 사이엔 풀어 추종 이동 재개. (사용자 선택)
+        """
+        if lock_on:
+            self._busy_blocking = True
+            if self._on_busy_change is not None:
+                try:
+                    self._on_busy_change(True)
+                except Exception as e:
+                    self._log(f"[SKILL] busy_change(True) 예외: {e}")
+        try:
+            self._press_burst(sk.vk, sk.burst_sec, sk.burst_interval_sec)
+        finally:
+            if lock_on:
+                self._busy_blocking = False
+                if self._on_busy_change is not None:
+                    try:
+                        self._on_busy_change(False)
+                    except Exception as e:
+                        self._log(f"[SKILL] busy_change(False) 예외: {e}")
+
     def _verify(self, sk: SkillSpec) -> bool:
         """verify_wait_sec 만큼 대기 후 최신 ctx 로부터 OCR 결과 조회.
 
@@ -219,13 +245,11 @@ class SkillScheduler(threading.Thread):
           공력증강/파력무참처럼 VK 만 쓰는 스킬은 False → 이동 잠금 없음.
         """
         lock_on = bool(getattr(sk, "blocks_movement", False))
-        if lock_on:
-            self._busy_blocking = True
-            if self._on_busy_change is not None:
-                try:
-                    self._on_busy_change(True)
-                except Exception as e:
-                    self._log(f"[SKILL] busy_change(True) 예외: {e}")
+        # 2026-06-22: 이동잠금을 시전 구간 전체가 아니라 각 burst 순간만 건다
+        # (아래 _press_burst_locked). 기존엔 retry_until_ready 전체(최대 12초)를
+        # 잠가 파력 verify 실패 시 힐러가 가만히 서있고 격수가 도망(224958 로그
+        # LOCK-STUCK 10s). verify 대기·retry 사이엔 lock 해제 → 추종 이동 재개.
+        # finally 의 lock off 는 안전망(burst 중 예외 시 lock 잔존 방지)으로 유지.
         try:
             # pre_block 훅. burst 전에 self-target 등 준비 작업.
             try:
@@ -275,7 +299,7 @@ class SkillScheduler(threading.Thread):
                         f"[SKILL] cast {sk.name} try={attempt} (until_ready) "
                         f"vk={hex(sk.vk)} burst={sk.burst_sec:.1f}s"
                     )
-                    self._press_burst(sk.vk, sk.burst_sec, sk.burst_interval_sec)
+                    self._press_burst_locked(sk, lock_on)
                     if self._verify(sk):
                         sk.last_cast = time.time()
                         self._log(
@@ -333,7 +357,7 @@ class SkillScheduler(threading.Thread):
                     f"[SKILL] cast {sk.name} try={i + 1}/{tries} "
                     f"vk={hex(sk.vk)} burst={sk.burst_sec:.1f}s"
                 )
-                self._press_burst(sk.vk, sk.burst_sec, sk.burst_interval_sec)
+                self._press_burst_locked(sk, lock_on)
                 if self._verify(sk):
                     sk.last_cast = time.time()
                     self._log(
