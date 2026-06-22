@@ -3440,7 +3440,17 @@ class HealerWorker(QtCore.QThread):
         _aligned = (a_valid and _follow_dist <= 2 and (
             (want in ("U", "D") and atk.x == hx) or
             (want in ("L", "R") and atk.y == hy)))
-        if _aligned and dur < 3.0:
+        # 2026-06-22: HOLD 는 격수가 *정지*(사냥 중 미세정렬)일 때만 의미.
+        # 격수가 이동 중(last_dir≠'-')이면 대기해도 격수가 멀어질 뿐(추종 실패)
+        # → HOLD 스킵하고 아래 ORTHO 우회로 따라감. 실증(221758 로그): HOLD
+        # 발생 시 격수 a_last_dir 이 전부 U/D/L/R(이동중)이었음 = "격수 가는데
+        # 힐러 한자리 처박혀 기다림"(사용자 짜증). 격수 정지 시엔 기존 HOLD 유지.
+        _atk_moving = False
+        try:
+            _atk_moving = a_valid and str(fol.direction() or "-") != "-"
+        except Exception:
+            _atk_moving = False
+        if _aligned and dur < 3.0 and not _atk_moving:
             if now - self._stuck_last_log >= 0.5:
                 self._stuck_last_log = now
                 self.log.warning(
