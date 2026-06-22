@@ -361,9 +361,20 @@ class AttackerWorker(QtCore.QThread):
                             # 파력이 안 막히던 근본(2026-06-15). IP는 힐러별 유니크.
                             _cj = int(getattr(rep, "cd_jipok", -1))
                             self._jipok_ready_by_idx[src_ip] = (0 <= _cj <= 20)
+                            # jipok_maps(지폭 시전 층, 예 '5,6,7') ip별 보관 →
+                            # app 의 현재 층 게이트용. 시전 층 외(예 (3))에선
+                            # cd_ready 로 파력 막으면 안 됨(그 층 파력 영구차단 버그).
+                            if not hasattr(self, "_jipok_maps_by_idx"):
+                                self._jipok_maps_by_idx = {}
+                            self._jipok_maps_by_idx[src_ip] = str(
+                                getattr(rep, "jipok_maps", "") or "")
                             _ready = any(self._jipok_ready_by_idx.values())
+                            # ready 인 쩔캐들의 시전 층 합집합(현재 층 매칭은 app).
+                            _jm = ",".join(
+                                self._jipok_maps_by_idx.get(ip, "")
+                                for ip, r in self._jipok_ready_by_idx.items() if r)
                             if hasattr(self._app, "set_jjeol_jipok_ready"):
-                                self._app.set_jjeol_jipok_ready(_ready)
+                                self._app.set_jjeol_jipok_ready(_ready, _jm)
                             if _cj >= 0:  # 쩔캐 cd 관측 시만 진단 로그(드묾).
                                 import time as _tj
                                 _nj = _tj.monotonic()
@@ -371,7 +382,8 @@ class AttackerWorker(QtCore.QThread):
                                     self._jipok_log_ts = _nj
                                     self.log.info(
                                         f"[JIPOK-READY] ip={src_ip} cd_jipok={_cj} "
-                                        f"ready={_ready} byip={self._jipok_ready_by_idx}")
+                                        f"ready={_ready} jmaps={_jm!r} "
+                                        f"byip={self._jipok_ready_by_idx}")
                         except Exception:
                             pass
                         # §1: 힐러 좌표 → Attacker → State.peers broadcast(충돌 회피).

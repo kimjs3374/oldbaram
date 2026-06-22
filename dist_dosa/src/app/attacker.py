@@ -230,23 +230,32 @@ class Attacker:
         except Exception:
             pass
 
-    def set_jjeol_jipok_ready(self, cd_ready: bool) -> None:
-        """§6: 쩔캐 지폭 준비/쿨 기반(cd_ready) + 지폭 쓴 그 굴(z) 추적.
+    def set_jjeol_jipok_ready(self, cd_ready: bool, jipok_maps: str = "") -> None:
+        """§6: 쩔캐 지폭 준비/쿨 기반(cd_ready) + 지폭 쓴 그 층(z) 추적.
 
         2026-06-15 사용자: "지폭 쓴 그 굴만 파력 스킵, 다음 굴은 시전".
         지폭 시전 직후 쿨이 254로 뛰어 cd_ready=False가 돼도, 지폭을 쏜
-        그 굴(z)에 있는 동안은 스킵 유지 → 같은 굴 파력 안 나감. 굴(z)이
-        바뀌면(다음 조건굴) 해제 → 거기선 파력 시전. (jipok_seq=F2 시전 카운터)
+        그 층(z)에 있는 동안은 스킵 유지 → 같은 층 파력 안 나감. 층(z)이
+        바뀌면(다음 조건층) 해제 → 거기선 파력 시전. (jipok_seq=F2 시전 카운터)
+
+        2026-06-22 사용자: 지폭 시전 층(jipok_maps=끝괄호 z, 예 '5,6,7') 외
+        층(예 '(3)')에선 쩔캐가 지폭을 안 쓰므로 cd_ready 만으로 파력을 막으면
+        안 됨(=그 층 파력 영구 차단 버그). 현재 층이 jipok_maps 에 없으면
+        cd_ready 무효화 → 파력 정상 시전. jipok_maps 비우면 전체 층(기존 동작).
         """
         import re
         _mn = (self._last.map_name if self._last is not None else "") or ""
         _m = re.search(r"\((\d+)\)\s*$", _mn)
         _cz = int(_m.group(1)) if _m else None
+        _jset = {int(t) for t in str(jipok_maps or "").split(",")
+                 if t.strip().isdigit()}
+        if _jset and (_cz is None or _cz not in _jset):
+            cd_ready = False                  # 지폭 비시전 층 → 파력 양보 금지
         if self._jipok_seq > self._jipok_cast_seq:
             self._jipok_cast_seq = self._jipok_seq
-            self._jipok_cast_z = _cz          # 지폭 시전 시점의 굴 기록
+            self._jipok_cast_z = _cz          # 지폭 시전 시점의 층 기록
         elif _cz is not None and _cz != self._jipok_cast_z:
-            self._jipok_cast_z = None         # 다른 굴 이동 → 해제
+            self._jipok_cast_z = None         # 다른 층 이동 → 해제
         _same_gul = (_cz is not None and _cz == self._jipok_cast_z)
         self._jjeol_jipok_ready = bool(cd_ready or _same_gul)
 
