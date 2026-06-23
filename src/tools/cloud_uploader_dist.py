@@ -52,10 +52,21 @@ def sha256(p: pathlib.Path) -> str:
 
 
 def collect():
-    out = []
+    out, skipped = [], []
     for p in sorted(DIST.rglob("*")):
-        if p.is_file():
-            out.append((p.relative_to(DIST).as_posix(), p))
+        if not p.is_file():
+            continue
+        rel = p.relative_to(DIST).as_posix()
+        # Supabase storage key 는 ASCII 만 허용(한글 등 → 400). 비ASCII 경로 제외.
+        # 실제 대상은 maps/_noise_backup 의 오독맵 격리본(한글 파일명, 앱 무관).
+        try:
+            rel.encode("ascii")
+        except UnicodeEncodeError:
+            skipped.append(rel)
+            continue
+        out.append((rel, p))
+    if skipped:
+        print(f"[제외] 비ASCII 경로 {len(skipped)}개(storage 한글 불가, 앱 무관)")
     return out
 
 
