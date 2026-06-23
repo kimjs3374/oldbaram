@@ -95,6 +95,22 @@ def _local_version() -> str:
         return ""
 
 
+def _ensure_cloud_config() -> None:
+    """메인 exe 의 로그인 게이트가 읽을 anon 설정(~/.oldbaram_cloud.json) 보장.
+    install.bat 이 하던 일을 런처가 대신 → 설정 없는 새 PC 도 바로 동작."""
+    cfg = pathlib.Path.home() / ".oldbaram_cloud.json"
+    if cfg.exists():
+        return
+    try:
+        cfg.write_text(
+            json.dumps({"url": URL, "anon_key": KEY, "bucket": BUCKET},
+                       ensure_ascii=False),
+            encoding="utf-8")
+        _log("클라우드 설정 생성 완료")
+    except Exception as e:
+        _log(f"클라우드 설정 생성 실패: {e}")
+
+
 def update() -> None:
     rows = _get_json(
         "/rest/v1/releases?select=build_version,dist_manifest"
@@ -141,6 +157,7 @@ def launch_main() -> None:
 
 
 def main() -> None:
+    _ensure_cloud_config()    # 메인 게이트가 읽을 anon 설정 보장(install.bat 역할)
     try:
         update()
     except Exception as e:
