@@ -9,7 +9,7 @@
 2. 관리자 계정 발급:
    ```sql
    insert into app_users(username, password_hash, is_admin, max_devices, max_concurrent)
-   values ('admin', crypt('관리자비번', gen_salt('bf')), true, 99, 99);
+   values ('admin', extensions.crypt('관리자비번', extensions.gen_salt('bf')), true, 99, 99);
    ```
    (관리자는 킬스위치·강제버전 면제)
 
@@ -17,7 +17,7 @@
 ```sql
 -- 기기 3대 등록 / 동시 1대 / 30일
 insert into app_users(username, password_hash, max_devices, max_concurrent, expires_at)
-values ('tester1', crypt('test1234', gen_salt('bf')), 3, 1, now() + interval '30 days');
+values ('tester1', extensions.crypt('test1234', extensions.gen_salt('bf')), 3, 1, now() + interval '30 days');
 ```
 - `max_devices` = 한 계정에 **등록 가능한 기기 수**(영구). `max_concurrent` = **동시에 켜는 기기 수**.
 - 둘 중 하나라도 0 이면 실행 불가.
@@ -26,7 +26,7 @@ values ('tester1', crypt('test1234', gen_salt('bf')), 3, 1, now() + interval '30
 ## 2. 일상 운영
 | 작업 | SQL |
 |---|---|
-| 비번 변경 | `update app_users set password_hash=crypt('새비번',gen_salt('bf')) where username='tester1';` |
+| 비번 변경 | `update app_users set password_hash=extensions.crypt('새비번',extensions.gen_salt('bf')) where username='tester1';` |
 | 기간 연장 | `update app_users set expires_at=now()+interval '90 days' where username='tester1';` |
 | 개별 차단 | `update app_users set enabled=false where username='tester1';` |
 | 개별 해제 | `update app_users set enabled=true where username='tester1';` |

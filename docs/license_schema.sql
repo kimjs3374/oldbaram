@@ -13,7 +13,7 @@ create extension if not exists pgcrypto;
 -- ---------------------------------------------------------------------------
 create table if not exists app_users (
     username       text primary key,
-    password_hash  text not null,                 -- crypt(비번, gen_salt('bf'))
+    password_hash  text not null,                 -- extensions.crypt(비번, extensions.gen_salt('bf'))
     is_admin       boolean not null default false,-- 관리자=킬스위치 영향 안 받음
     max_devices    integer not null default 10,   -- 등록 가능 기기 수(0=실행불가)
     max_concurrent integer not null default 1,    -- 동시 실행 기기 수(0=실행불가)
@@ -85,7 +85,7 @@ create or replace function app_login(
     p_device_name text,
     p_build       text
 ) returns json
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare
     u            app_users%rowtype;
     g_enabled    boolean;
@@ -99,7 +99,7 @@ begin
     -- 비번 검증 (존재하지 않는 계정도 동일 메시지로 — 계정 열거 방지)
     if u.username is null
        or u.password_hash is null
-       or crypt(p_password, u.password_hash) <> u.password_hash then
+       or extensions.crypt(p_password, u.password_hash) <> u.password_hash then
         return json_build_object('ok', false, 'reason', 'bad_credentials');
     end if;
 
@@ -170,7 +170,7 @@ end $$;
 --    반환 {ok:true} | {ok:false, reason}
 -- ---------------------------------------------------------------------------
 create or replace function app_heartbeat(p_token text) returns json
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare
     d         devices%rowtype;
     u         app_users%rowtype;
@@ -206,7 +206,7 @@ end $$;
 -- 6) app_logout — 동시실행 슬롯 즉시 반환
 -- ---------------------------------------------------------------------------
 create or replace function app_logout(p_token text) returns json
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
     update devices
        set last_seen = null, session_token = null
@@ -228,14 +228,14 @@ grant execute on function app_logout(text)                    to anon;
 -- ----------------------------------------------------------------------------
 -- ▶ 관리자 계정 발급 (킬스위치/버전 면제, 기기/동시 넉넉히)
 --   insert into app_users(username, password_hash, is_admin, max_devices, max_concurrent)
---   values ('admin', crypt('관리자비번', gen_salt('bf')), true, 99, 99);
+--   values ('admin', extensions.crypt('관리자비번', extensions.gen_salt('bf')), true, 99, 99);
 --
 -- ▶ 일반 테스트 계정 발급 (기기 3대 등록, 동시 1대, 30일 사용)
 --   insert into app_users(username, password_hash, max_devices, max_concurrent, expires_at)
---   values ('tester1', crypt('test1234', gen_salt('bf')), 3, 1, now() + interval '30 days');
+--   values ('tester1', extensions.crypt('test1234', extensions.gen_salt('bf')), 3, 1, now() + interval '30 days');
 --
 -- ▶ 비번 변경
---   update app_users set password_hash = crypt('새비번', gen_salt('bf')) where username='tester1';
+--   update app_users set password_hash = extensions.crypt('새비번', extensions.gen_salt('bf')) where username='tester1';
 --
 -- ▶ 사용 기간 연장
 --   update app_users set expires_at = now() + interval '90 days' where username='tester1';
