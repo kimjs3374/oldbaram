@@ -86,8 +86,18 @@ def collect_files() -> List[pathlib.Path]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--changelog", default="", help="이번 버전 변경 내역")
+    ap.add_argument("--build", default=None,
+                    help="배포 semver(미지정 시 src/version.py BUILD_VERSION)")
     ap.add_argument("--dry-run", action="store_true", help="업로드 없이 변경분만 표시")
     args = ap.parse_args()
+
+    build_ver = args.build
+    if not build_ver:
+        try:
+            from ..version import BUILD_VERSION
+            build_ver = BUILD_VERSION
+        except Exception:
+            build_ver = None
 
     adm = load_admin()
     url, key, bucket = adm["url"], adm["service_key"], adm["bucket"]
@@ -157,17 +167,28 @@ def main() -> None:
     hr = dict(H)
     hr["Content-Type"] = "application/json"
     hr["Prefer"] = "return=minimal"
-    rr = requests.post(
-        f"{url}/rest/v1/releases",
-        headers=hr,
-        data=json.dumps(
-            {"version": new_ver, "changelog": args.changelog, "manifest": manifest},
-            ensure_ascii=False,
-        ).encode("utf-8"),
-        timeout=_TIMEOUT,
-    )
+    payload = {"version": new_ver, "changelog": args.changelog, "manifest": manifest}
+    if build_ver:
+        payload["build_version"] = build_ver
+
+    def _post(p):
+        return requests.post(
+            f"{url}/rest/v1/releases", headers=hr,
+            data=json.dumps(p, ensure_ascii=False).encode("utf-8"),
+            timeout=_TIMEOUT,
+        )
+
+    rr = _post(payload)
+    # releases.build_version 컬럼이 아직 없으면(스키마 SQL 미실행) 빼고 재시도.
+    if rr.status_code >= 400 and "build_version" in payload:
+        print("[WARN] build_version 컬럼 없음 → 제외하고 재시도 "
+              "(license_schema.sql 실행 시 기록됨).")
+        payload.pop("build_version")
+        rr = _post(payload)
     rr.raise_for_status()
-    print(f"[OK] 릴리스 v{new_ver} 생성 완료. 업로드 {len(changed)}개 / 총 {len(files)}개.")
+    _bv = f" build={build_ver}" if build_ver and "build_version" in payload else ""
+    print(f"[OK] 릴리스 v{new_ver}{_bv} 생성 완료. "
+          f"업로드 {len(changed)}개 / 총 {len(files)}개.")
 
 
 if __name__ == "__main__":

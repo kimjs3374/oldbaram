@@ -68,6 +68,39 @@ class CloudClient:
     def _headers(self) -> dict:
         return {"apikey": self.key, "Authorization": f"Bearer {self.key}"}
 
+    # ---------- 라이선스 RPC (서버측 검증, anon 은 RPC 만 호출 가능) ----------
+    def rpc(self, fn: str, params: dict, timeout: Optional[int] = None) -> Any:
+        """Postgres 함수(SECURITY DEFINER) 호출. POST /rest/v1/rpc/{fn}.
+
+        로그인/라이선스/기기/킬스위치 판정은 전부 서버 함수가 한다. 클라는
+        결과 json 만 신뢰(테이블은 RLS 로 직접 접근 차단됨). heartbeat 등
+        메인스레드 호출은 timeout 을 짧게 줘 UI 프리즈를 줄인다.
+        """
+        h = dict(self._headers)
+        h["Content-Type"] = "application/json"
+        r = requests.post(
+            f"{self.url}/rest/v1/rpc/{fn}",
+            headers=h, data=json.dumps(params), timeout=timeout or _TIMEOUT,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def login(self, username: str, password: str, hwid: str,
+              device_name: str, build: str) -> dict:
+        """app_login → {ok, reason?|token, username, is_admin, expires_at, ...}."""
+        return self.rpc("app_login", {
+            "p_username": username, "p_password": password,
+            "p_hwid": hwid, "p_device_name": device_name, "p_build": build,
+        })
+
+    def heartbeat(self, token: str) -> dict:
+        """app_heartbeat → {ok} | {ok:false, reason}. last_seen 갱신 + 재검증."""
+        return self.rpc("app_heartbeat", {"p_token": token}, timeout=8)
+
+    def logout(self, token: str) -> dict:
+        """app_logout → 동시실행 슬롯 즉시 반환."""
+        return self.rpc("app_logout", {"p_token": token}, timeout=8)
+
     # ---------- 릴리스/버전 ----------
     def latest_release(self) -> Optional[dict]:
         """releases 최신 1건. 없으면 None.

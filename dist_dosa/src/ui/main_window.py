@@ -4480,7 +4480,58 @@ class MainWindow(QtWidgets.QMainWindow):
         from .settings_io import load
         load(self)
 
+    # ---- 라이선스 모니터(하트비트 + 주기 로그) — healer_gui 가 _auth 주입 후 호출 ----
+    def start_license_monitors(self) -> None:
+        """하트비트(30s)로 동시실행 슬롯 유지 + 만료/킬스위치 감시, 로그 5분 주기
+        업로드. _auth(게이트 결과) 없으면 아무것도 안 함(게이트 미사용 환경)."""
+        auth = getattr(self, "_auth", None)
+        if not auth or not auth.get("token") or not auth.get("client"):
+            return
+        self._lic_client = auth["client"]
+        self._lic_token = auth["token"]
+        self._hb_timer = QtCore.QTimer(self)
+        self._hb_timer.timeout.connect(self._license_heartbeat)
+        self._hb_timer.start(30000)
+        self._log_upload_timer = QtCore.QTimer(self)
+        self._log_upload_timer.timeout.connect(self._periodic_log_upload)
+        self._log_upload_timer.start(300000)   # 5분
+
+    def _license_heartbeat(self) -> None:
+        try:
+            r = self._lic_client.heartbeat(self._lic_token)
+        except Exception:
+            return  # 네트워크 일시 실패는 다음 틱에 재시도(즉시 종료 안 함)
+        if isinstance(r, dict) and not r.get("ok"):
+            reason = r.get("reason", "")
+            msg = {
+                "killswitch": "관리자가 서비스를 중지했습니다.",
+                "expired": "사용 기간이 만료되었습니다.",
+                "disabled": "사용이 중지된 계정입니다.",
+            }.get(reason, f"세션이 종료되었습니다({reason}).")
+            try:
+                self._hb_timer.stop()
+                QtWidgets.QMessageBox.warning(
+                    self, "옛바", msg + "\n프로그램을 종료합니다.")
+            except Exception:
+                pass
+            self.close()
+
+    def _periodic_log_upload(self) -> None:
+        try:
+            from . import cloud_panel
+            cloud_panel.auto_upload_log(self)
+        except Exception:
+            pass
+
     def closeEvent(self, ev):
+        # 라이선스 세션 반환 — 동시실행 슬롯 즉시 해제(다음 실행 차단 방지).
+        try:
+            _tok = getattr(self, "_lic_token", None)
+            _cli = getattr(self, "_lic_client", None)
+            if _tok and _cli:
+                _cli.logout(_tok)
+        except Exception:
+            pass
         # 종료 시 디버그 로그 자동 업로드 (클라우드 미설정이면 조용히 skip).
         try:
             from . import cloud_panel

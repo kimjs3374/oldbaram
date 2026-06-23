@@ -109,10 +109,21 @@ def main():
     app = QtWidgets.QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setStyleSheet(APP_QSS)
+    # 2026-06-23: 라이선스 게이트(로그인+기기등록+동시실행+사용기간+킬스위치+
+    # 강제버전). 서버 RPC(app_login)가 판정. 통과 못하면 앱 미실행. QApplication
+    # 이 있어야 다이얼로그를 띄울 수 있어 여기서 호출.
+    from ..ui.login_gate import run_login_gate
+    from ..version import BUILD_VERSION
+    auth = run_login_gate(BUILD_VERSION)
+    if not auth:
+        sys.exit(0)
     last = _load_last()
     from ..utils import logger_setup
-    logger_setup.set_session(last.get("nick", ""), last.get("role", ""))
+    # 로그 식별자 = 로그인 아이디(요구: 아이디+구분자). 역할(구분자)은 라디오 복원.
+    logger_setup.set_session(
+        auth.get("username") or last.get("nick", ""), last.get("role", ""))
     w = MainWindow(cfg)
+    w._auth = auth                    # 하트비트/주기로그/로그아웃에 사용(Phase C)
     # 직전 역할 복원 (라디오 토글 → self.role 반영). 쩔캐=healer+jjeol.
     try:
         _role = last.get("role", "")
@@ -124,13 +135,19 @@ def main():
             w.rb_healer.setChecked(True)
     except Exception:
         pass
-    # 직전 닉네임을 메인창 닉 필드에 복원.
+    # 닉네임 = 로그인 아이디 고정(로그 식별자 일관). 라디오(역할)만 사용자 선택.
+    _nick = auth.get("username") or str(last.get("nick", "") or "")
     try:
         if hasattr(w, "nick_edit"):
-            w.nick_edit.setText(str(last.get("nick", "") or ""))
+            w.nick_edit.setText(_nick)
     except Exception:
         pass
-    w._session_nick = str(last.get("nick", "") or "")
+    w._session_nick = _nick
+    # 라이선스 하트비트(동시실행 슬롯 유지/감시) + 주기 로그 업로드 시작.
+    try:
+        w.start_license_monitors()
+    except Exception:
+        pass
     w.show()
     sys.exit(app.exec_())
 
