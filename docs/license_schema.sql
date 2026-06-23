@@ -46,6 +46,8 @@ on conflict (key) do nothing;
 
 -- 기존 releases 테이블에 배포 semver 컬럼 추가(증분 version 정수와 별개, 표시/강제용).
 alter table if exists releases add column if not exists build_version text;
+-- exe 배포(런처 자동업데이트)용 dist 파일 manifest. 런처가 이걸 받아 증분 다운로드.
+alter table if exists releases add column if not exists dist_manifest jsonb;
 
 -- ---------------------------------------------------------------------------
 -- 2) RLS — 세 테이블 모두 anon 직접 접근 전면 차단(정책 무 = 거부). RPC만 우회.

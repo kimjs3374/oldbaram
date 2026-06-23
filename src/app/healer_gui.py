@@ -100,8 +100,10 @@ def main():
             sys.stdout = _devnull
         if sys.stderr is None:
             sys.stderr = _devnull
-    # 2026-06-15: 무엇보다 먼저 자동 업데이트 (옛 버전 고착 방지).
-    _auto_update()
+    # 2026-06-23: 자동 업데이트는 런처(launcher.py → oldbaram_launcher.exe)가
+    # 전담(exe 배포 모델, dist 증분 다운로드). 메인 exe 는 자체 업데이트하지
+    # 않는다 — 기존 _auto_update 는 소스(.py) 교체 + pyw 재시작 방식이라 exe
+    # (C컴파일)와 양립 불가. 함수는 잔존(레거시 소스 배포 호환용)하되 호출 제거.
     # 2026-06-13 항목8: 시작 시 닉네임/역할 선택 다이얼로그 제거 →
     #   GUI 메인창의 닉네임 필드 + 역할 라디오에서 직접 설정.
     #   직전 세션 값(.oldbaram_session.json)을 필드/라디오에 복원만 한다.
