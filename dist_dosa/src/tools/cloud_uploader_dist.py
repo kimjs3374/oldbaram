@@ -31,6 +31,7 @@ SAFE_BYTES = 50 * 1024 * 1024        # Supabase 무료 파일 50MB 제한
 CHUNK_BYTES = 45 * 1024 * 1024       # 초과 파일 분할 단위(< 50MB)
 _TIMEOUT = 300
 _ADMIN = pathlib.Path.home() / ".oldbaram_cloud_admin.json"
+_S = requests.Session()   # 연결 재사용(매 파일 TLS 핸드셰이크 제거 → 대폭 가속)
 
 
 def load_admin() -> dict:
@@ -62,10 +63,21 @@ def _put(url, headers, path_in_bucket, data):
     hu = dict(headers)
     hu["x-upsert"] = "true"
     hu["Content-Type"] = "application/octet-stream"
-    r = requests.post(
+    r = _S.post(
         f"{url}/storage/v1/object/{path_in_bucket}",
         headers=hu, data=data, timeout=_TIMEOUT)
     r.raise_for_status()
+
+
+def _exists(url, headers, path_in_bucket) -> bool:
+    """이미 업로드된 파일인지(재개용). public HEAD 200 이면 존재."""
+    try:
+        r = _S.head(
+            f"{url}/storage/v1/object/public/{path_in_bucket}",
+            headers=headers, timeout=15)
+        return r.status_code == 200
+    except Exception:
+        return False
 
 
 def main() -> None:
@@ -89,7 +101,7 @@ def main() -> None:
     H = {"apikey": key, "Authorization": f"Bearer {key}"}
 
     # 직전 최신 dist_manifest (증분 기준)
-    r = requests.get(
+    r = _S.get(
         f"{url}/rest/v1/releases",
         headers=H,
         params={"select": "version,dist_manifest",
@@ -124,18 +136,23 @@ def main() -> None:
         print("(dry-run, 업로드 안 함)")
         return
 
+    first_deploy = not prev   # 첫 배포면 중단 재개를 위해 기존 파일 skip 허용
     for i, (rel, p, entry) in enumerate(changed, 1):
         n_parts = entry.get("parts")
         if n_parts:
+            if first_deploy and _exists(url, H, f"{bucket}/{PREFIX}/{rel}.part{n_parts-1}"):
+                continue
             with open(p, "rb") as f:
                 for idx in range(n_parts):
                     chunk = f.read(CHUNK_BYTES)
                     _put(url, H, f"{bucket}/{PREFIX}/{rel}.part{idx}", chunk)
-            print(f"[{i}/{len(changed)}] up {rel} ({n_parts}청크)")
+            print(f"[{i}/{len(changed)}] up {rel} ({n_parts}청크)", flush=True)
         else:
+            if first_deploy and _exists(url, H, f"{bucket}/{PREFIX}/{rel}"):
+                continue
             with open(p, "rb") as f:
                 _put(url, H, f"{bucket}/{PREFIX}/{rel}", f)
-            print(f"[{i}/{len(changed)}] up {rel}")
+            print(f"[{i}/{len(changed)}] up {rel}", flush=True)
 
     new_ver = prev_ver + 1
     hr = dict(H)
@@ -146,7 +163,7 @@ def main() -> None:
         "build_version": build_ver, "dist_manifest": manifest,
         "manifest": [],   # 소스 채널 미사용(런처는 dist_manifest 만 봄)
     }
-    rr = requests.post(
+    rr = _S.post(
         f"{url}/rest/v1/releases", headers=hr,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         timeout=_TIMEOUT)
