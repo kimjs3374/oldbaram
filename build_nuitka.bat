@@ -15,6 +15,12 @@ cd /d D:\oldbaram
   --assume-yes-for-downloads ^
   --enable-plugin=pyqt5 ^
   --include-package=src ^
+  --include-package=requests ^
+  --include-package=urllib3 ^
+  --include-package=certifi ^
+  --include-package=charset_normalizer ^
+  --include-package=idna ^
+  --include-package-data=certifi ^
   --include-package-data=rapidocr_onnxruntime ^
   --include-data-files=src/vision/korean_rec.onnx=src/vision/korean_rec.onnx ^
   --include-data-files=src/vision/digit_cnn.onnx=src/vision/digit_cnn.onnx ^
