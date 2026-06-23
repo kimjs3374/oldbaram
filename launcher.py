@@ -54,15 +54,30 @@ def _get_json(path: str, timeout: int = 15):
         return json.loads(r.read().decode("utf-8"))
 
 
-def _download(storage_path: str, dest: pathlib.Path, timeout: int = 180) -> None:
+def _fetch(storage_path: str, timeout: int = 180) -> bytes:
     url = f"{URL}/storage/v1/object/public/{BUCKET}/{storage_path}"
     req = urllib.request.Request(url, headers=_HDRS)
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        data = r.read()
+        return r.read()
+
+
+def _write(dest: pathlib.Path, data: bytes) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
     tmp.write_bytes(data)
     tmp.replace(dest)   # 원자적 교체(부분 다운로드 방지)
+
+
+def _download(storage_path: str, dest: pathlib.Path, timeout: int = 180) -> None:
+    _write(dest, _fetch(storage_path, timeout))
+
+
+def _download_parts(rel_path: str, n_parts: int, dest: pathlib.Path) -> None:
+    """50MB 초과로 분할 업로드된 파일(.part0,.part1,...) 재조립."""
+    buf = bytearray()
+    for i in range(n_parts):
+        buf += _fetch(f"app/{rel_path}.part{i}", timeout=300)
+    _write(dest, bytes(buf))
 
 
 def _sha256(p: pathlib.Path) -> str:
@@ -104,8 +119,13 @@ def update() -> None:
         dest = APP / rel_path
         if dest.exists() and _sha256(dest) == entry.get("sha256"):
             continue
-        _log(f"  ↓ {rel_path}")
-        _download(f"app/{rel_path}", dest)
+        n_parts = entry.get("parts")
+        if n_parts:
+            _log(f"  down {rel_path} ({n_parts}청크)")
+            _download_parts(rel_path, n_parts, dest)
+        else:
+            _log(f"  down {rel_path}")
+            _download(f"app/{rel_path}", dest)
         got += 1
     VERSION_FILE.write_text(bv, encoding="utf-8")
     _log(f"업데이트 완료 — {got}개 파일")

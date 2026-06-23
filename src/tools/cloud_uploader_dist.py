@@ -2,8 +2,12 @@
 
 nuitka_build/run_sunbi_healer.dist/ 의 파일들을 Supabase storage 의
 sunbi-releases/app/<상대경로> 로 증분 업로드(바뀐 것만)하고, releases 테이블에
-build_version + dist_manifest(전체 파일 sha256 목록)를 기록한다. 런처(launcher.py)
-가 이 dist_manifest 를 받아 로컬 app/ 과 비교해 변경분만 내려받는다.
+build_version + dist_manifest(전체 파일 sha256 목록)를 기록한다. 런처
+(launcher.py)가 이 dist_manifest 를 받아 로컬 app/ 과 비교해 변경분만 내려받는다.
+
+Supabase 무료는 파일 1개 50MB 제한 → 그 이상(예: cv2.pyd 71MB)은 45MB 청크로
+분할 업로드(app/<path>.part0, .part1, ...). manifest entry 에 parts=N 표시.
+런처가 parts 있으면 청크를 받아 재조립한다.
 
 소스(.py) 업로더는 tools/cloud_uploader.py(레거시). 이쪽은 exe 배포 전용.
 실행(D머신, service_role): py -m src.tools.cloud_uploader_dist --changelog "..."
@@ -13,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import pathlib
 import sys
 
@@ -21,8 +26,9 @@ import requests
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DIST = ROOT / "nuitka_build" / "run_sunbi_healer.dist"
 BUCKET = "sunbi-releases"
-PREFIX = "app"                      # storage 경로 prefix (런처도 app/ 로 받음)
-MAX_BYTES = 50 * 1024 * 1024        # Supabase 무료 파일 50MB 제한
+PREFIX = "app"                       # storage 경로 prefix (런처도 app/ 로 받음)
+SAFE_BYTES = 50 * 1024 * 1024        # Supabase 무료 파일 50MB 제한
+CHUNK_BYTES = 45 * 1024 * 1024       # 초과 파일 분할 단위(< 50MB)
 _TIMEOUT = 300
 _ADMIN = pathlib.Path.home() / ".oldbaram_cloud_admin.json"
 
@@ -50,6 +56,16 @@ def collect():
         if p.is_file():
             out.append((p.relative_to(DIST).as_posix(), p))
     return out
+
+
+def _put(url, headers, path_in_bucket, data):
+    hu = dict(headers)
+    hu["x-upsert"] = "true"
+    hu["Content-Type"] = "application/octet-stream"
+    r = requests.post(
+        f"{url}/storage/v1/object/{path_in_bucket}",
+        headers=hu, data=data, timeout=_TIMEOUT)
+    r.raise_for_status()
 
 
 def main() -> None:
@@ -86,41 +102,40 @@ def main() -> None:
             if rows else {})
 
     files = collect()
-    manifest, changed, toobig = [], [], []
+    manifest, changed = [], []
     for rel, p in files:
         sz = p.stat().st_size
-        if sz > MAX_BYTES:
-            toobig.append((rel, sz))
-            continue
         h = sha256(p)
-        manifest.append({"path": rel, "sha256": h, "size": sz})
+        entry = {"path": rel, "sha256": h, "size": sz}
+        if sz > SAFE_BYTES:
+            entry["parts"] = math.ceil(sz / CHUNK_BYTES)
+        manifest.append(entry)
         if prev.get(rel) != h:
-            changed.append((rel, p))
-
-    if toobig:
-        print("[ERROR] 50MB 초과 파일 — 업로드 불가:")
-        for rel, sz in toobig:
-            print(f"  {rel}  ({sz/1024/1024:.1f}MB)")
-        sys.exit(1)
+            changed.append((rel, p, entry))
 
     total_mb = sum(e["size"] for e in manifest) / 1024 / 1024
-    chg_mb = sum(p.stat().st_size for _, p in changed) / 1024 / 1024
+    chg_mb = sum(p.stat().st_size for _, p, _ in changed) / 1024 / 1024
+    split = [e["path"] for e in manifest if e.get("parts")]
     print(f"전체 {len(files)}개 / 변경 {len(changed)}개({chg_mb:.1f}MB) / "
           f"build={build_ver} / dist={total_mb:.0f}MB")
+    if split:
+        print(f"분할 업로드 파일(>50MB): {split}")
     if args.dry_run:
-        print("(dry-run — 업로드 안 함)")
+        print("(dry-run, 업로드 안 함)")
         return
 
-    for i, (rel, p) in enumerate(changed, 1):
-        hu = dict(H)
-        hu["x-upsert"] = "true"
-        hu["Content-Type"] = "application/octet-stream"
-        with open(p, "rb") as f:
-            rr = requests.post(
-                f"{url}/storage/v1/object/{bucket}/{PREFIX}/{rel}",
-                headers=hu, data=f, timeout=_TIMEOUT)
-        rr.raise_for_status()
-        print(f"[{i}/{len(changed)}] ↑ {rel}")
+    for i, (rel, p, entry) in enumerate(changed, 1):
+        n_parts = entry.get("parts")
+        if n_parts:
+            with open(p, "rb") as f:
+                for idx in range(n_parts):
+                    chunk = f.read(CHUNK_BYTES)
+                    _put(url, H, f"{bucket}/{PREFIX}/{rel}.part{idx}", chunk)
+            print(f"[{i}/{len(changed)}] up {rel} ({n_parts}청크)")
+        else:
+            with open(p, "rb") as f:
+                _put(url, H, f"{bucket}/{PREFIX}/{rel}", f)
+            print(f"[{i}/{len(changed)}] up {rel}")
 
     new_ver = prev_ver + 1
     hr = dict(H)
@@ -136,8 +151,8 @@ def main() -> None:
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         timeout=_TIMEOUT)
     rr.raise_for_status()
-    print(f"[OK] 릴리스 v{new_ver} build={build_ver} — "
-          f"업로드 {len(changed)}/{len(files)}개")
+    print(f"[OK] release v{new_ver} build={build_ver} "
+          f"up {len(changed)}/{len(files)}")
 
 
 if __name__ == "__main__":
