@@ -79,6 +79,8 @@ class AdminConsole(QtWidgets.QWidget):
         bar = QtWidgets.QHBoxLayout()
         btn_refresh = QtWidgets.QPushButton("🔄 새로고침")
         btn_refresh.clicked.connect(self.refresh)
+        btn_edit = QtWidgets.QPushButton("✏️ 수정")
+        btn_edit.clicked.connect(self.edit_user)
         btn_toggle = QtWidgets.QPushButton("⛔ 차단/해제")
         btn_toggle.clicked.connect(self.toggle_enabled)
         btn_extend = QtWidgets.QPushButton("📅 +30일 연장")
@@ -87,7 +89,7 @@ class AdminConsole(QtWidgets.QWidget):
         btn_clear_dev.clicked.connect(self.clear_devices)
         btn_del = QtWidgets.QPushButton("🗑 삭제")
         btn_del.clicked.connect(self.delete_user)
-        for b in (btn_refresh, btn_toggle, btn_extend, btn_clear_dev, btn_del):
+        for b in (btn_refresh, btn_edit, btn_toggle, btn_extend, btn_clear_dev, btn_del):
             bar.addWidget(b)
         bar.addStretch(1)
         lay.addLayout(bar)
@@ -142,6 +144,7 @@ class AdminConsole(QtWidgets.QWidget):
                     online[d["username"]] = online.get(d["username"], 0) + 1
             except Exception:
                 pass
+        self._users = users   # 수정 다이얼로그용 캐시
         self.table.setRowCount(len(users))
         for i, u in enumerate(users):
             exp = (u.get("expires_at") or "")[:10] or "무제한"
@@ -187,6 +190,26 @@ class AdminConsole(QtWidgets.QWidget):
                           headers=self.H, params={"username": f"eq.{username}"},
                           data=json.dumps(body), timeout=_TIMEOUT)
         r.raise_for_status()
+
+    def edit_user(self):
+        u = self._selected_user()
+        if not u:
+            return
+        u = u.replace(" (관리자)", "")
+        data = next((x for x in getattr(self, "_users", [])
+                     if x["username"] == u), None)
+        if not data:
+            self._say("회원 정보를 찾을 수 없습니다. 새로고침 후 다시.")
+            return
+        dlg = _EditDialog(data)
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return
+        try:
+            self._patch_user(u, dlg.patch_body())
+            self._say(f"'{u}' 수정 완료")
+            self.refresh()
+        except Exception as e:
+            self._say(f"수정 실패: {e}")
 
     def toggle_enabled(self):
         u = self._selected_user()
@@ -249,6 +272,65 @@ class AdminConsole(QtWidgets.QWidget):
             self.refresh()
         except Exception as e:
             self._say(f"실패: {e}")
+
+
+class _EditDialog(QtWidgets.QDialog):
+    """기존 회원 수정 — 비번(선택)/등록기기/동시실행/만료일."""
+
+    def __init__(self, data: dict):
+        super().__init__()
+        self.setWindowTitle(f"회원 수정 — {data['username']}")
+        self.setModal(True)
+        lay = QtWidgets.QFormLayout(self)
+        lay.addRow("아이디", QtWidgets.QLabel(data["username"]))
+        self.ed_pw = QtWidgets.QLineEdit()
+        self.ed_pw.setEchoMode(QtWidgets.QLineEdit.Password)
+        self.ed_pw.setPlaceholderText("변경 시에만 입력 (비우면 유지)")
+        lay.addRow("새 비밀번호", self.ed_pw)
+        self.sp_dev = QtWidgets.QSpinBox(); self.sp_dev.setRange(0, 99)
+        self.sp_dev.setValue(int(data.get("max_devices") or 0))
+        lay.addRow("등록기기", self.sp_dev)
+        self.sp_con = QtWidgets.QSpinBox(); self.sp_con.setRange(0, 99)
+        self.sp_con.setValue(int(data.get("max_concurrent") or 0))
+        lay.addRow("동시실행", self.sp_con)
+        self.cb_unlimited = QtWidgets.QCheckBox("무제한")
+        self.de = QtWidgets.QDateEdit(); self.de.setCalendarPopup(True)
+        self.de.setDisplayFormat("yyyy-MM-dd")
+        exp = data.get("expires_at")
+        if exp:
+            try:
+                d = datetime.datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                self.de.setDate(QtCore.QDate(d.year, d.month, d.day))
+            except Exception:
+                self.de.setDate(QtCore.QDate.currentDate().addDays(30))
+        else:
+            self.cb_unlimited.setChecked(True)
+            self.de.setDate(QtCore.QDate.currentDate().addDays(30))
+        self.de.setEnabled(not self.cb_unlimited.isChecked())
+        self.cb_unlimited.toggled.connect(lambda c: self.de.setEnabled(not c))
+        hb = QtWidgets.QHBoxLayout()
+        hb.addWidget(self.cb_unlimited); hb.addWidget(self.de)
+        wrap = QtWidgets.QWidget(); wrap.setLayout(hb)
+        lay.addRow("만료일", wrap)
+        btns = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept); btns.rejected.connect(self.reject)
+        lay.addRow(btns)
+
+    def patch_body(self) -> dict:
+        body = {"max_devices": self.sp_dev.value(),
+                "max_concurrent": self.sp_con.value()}
+        if self.cb_unlimited.isChecked():
+            body["expires_at"] = None
+        else:
+            qd = self.de.date()
+            body["expires_at"] = datetime.datetime(
+                qd.year(), qd.month(), qd.day(),
+                tzinfo=datetime.timezone.utc).isoformat()
+        pw = self.ed_pw.text()
+        if pw:
+            body["password_hash"] = _hash_pw(pw)
+        return body
 
 
 def main():
