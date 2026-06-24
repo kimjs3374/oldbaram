@@ -36,7 +36,7 @@ cd /d D:\oldbaram
   --nofollow-import-to=matplotlib ^
   --nofollow-import-to=scipy ^
   --nofollow-import-to=tkinter ^
-  --windows-console-mode=force ^
+  --windows-console-mode=disable ^
   --output-dir=nuitka_build ^
   --output-filename=oldbaram_sunbi_healer.exe
 

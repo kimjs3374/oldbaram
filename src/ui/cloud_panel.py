@@ -182,8 +182,10 @@ def attach(mw, root_layout) -> None:
     # 줄2: 업데이트 알림/버튼 — 런처 배포(exe, OB_LAUNCHER)는 런처가 자동
     # 업데이트를 전담하므로 이 행을 숨긴다(중복 알림 혼란 방지). 개발(py -m)
     # 에서만 표시(레거시 소스 업데이트 경로).
-    lbl = QtWidgets.QLabel("")
-    btn_update = QtWidgets.QPushButton("⬇ 업데이트")
+    # 🔴 부모를 mw 로 지정 — 레이아웃에 안 넣어도 떠다니는 top-level 창이 되지
+    # 않게(런처 환경에서 setVisible 시 별도 창으로 뜨던 버그 차단).
+    lbl = QtWidgets.QLabel("", mw)
+    btn_update = QtWidgets.QPushButton("⬇ 업데이트", mw)
     btn_update.setVisible(False)
     if not _launcher:
         row2 = QtWidgets.QHBoxLayout()
@@ -192,6 +194,9 @@ def attach(mw, root_layout) -> None:
         row2.addWidget(lbl, 1)
         row2.addWidget(btn_update)
         root_layout.addLayout(row2)
+    else:
+        lbl.hide()
+        btn_update.hide()
     mw._cloud_lbl = lbl
     mw._cloud_btn_update = btn_update
 
@@ -275,17 +280,20 @@ def attach(mw, root_layout) -> None:
     btn_log.clicked.connect(on_log)
     btn_update.clicked.connect(on_update)
 
-    # 시작 시 업데이트 체크 (빠른 단일 쿼리; 미설정/실패는 조용히)
-    try:
-        c = cloud_sync.CloudClient()
-        rel = updater.check(c)
-        if rel:
-            cl = (rel.get("changelog") or "").strip()
-            _say(f"새 버전 v{rel['version']}" + (f": {cl}" if cl else " 있음"))
-            btn_update.setVisible(True)
-        else:
-            _say(f"최신 (v{updater.local_version()})")
-    except cloud_sync.CloudConfigError:
-        _say("클라우드 미설정")
-    except Exception:  # noqa: BLE001 — 시작 시 네트워크 실패 무시
-        _say("")
+    # 시작 시 업데이트 체크 (빠른 단일 쿼리; 미설정/실패는 조용히).
+    # 런처 배포(exe)는 런처가 업데이트를 전담하므로 이 레거시 소스 체크를 스킵
+    # (스킵 안 하면 부모 없는 btn_update 가 별도 창으로 떴음 + 중복 알림).
+    if not _launcher:
+        try:
+            c = cloud_sync.CloudClient()
+            rel = updater.check(c)
+            if rel:
+                cl = (rel.get("changelog") or "").strip()
+                _say(f"새 버전 v{rel['version']}" + (f": {cl}" if cl else " 있음"))
+                btn_update.setVisible(True)
+            else:
+                _say(f"최신 (v{updater.local_version()})")
+        except cloud_sync.CloudConfigError:
+            _say("클라우드 미설정")
+        except Exception:  # noqa: BLE001 — 시작 시 네트워크 실패 무시
+            _say("")
