@@ -165,22 +165,33 @@ def auto_upload_region_profiles(mw) -> None:
 
 def attach(mw, root_layout) -> None:
     """클라우드 버튼 행을 root_layout 에 추가하고 핸들러를 연결."""
+    import os
+    _launcher = bool(os.environ.get("OB_LAUNCHER"))
+    # 줄1: 설정/로그 버튼 3개 — 균등 폭(stretch=1)으로 좁은 창 텍스트 잘림 방지.
     row = QtWidgets.QHBoxLayout()
     row.setSpacing(4)
     btn_up = QtWidgets.QPushButton("☁ 설정 올리기")
     btn_down = QtWidgets.QPushButton("☁ 설정 내리기")
     btn_log = QtWidgets.QPushButton("☁ 로그 올리기")
+    for b in (btn_up, btn_down, btn_log):
+        b.setMinimumHeight(26)
+    row.addWidget(btn_up, 1)
+    row.addWidget(btn_down, 1)
+    row.addWidget(btn_log, 1)
+    root_layout.addLayout(row)
+    # 줄2: 업데이트 알림/버튼 — 런처 배포(exe, OB_LAUNCHER)는 런처가 자동
+    # 업데이트를 전담하므로 이 행을 숨긴다(중복 알림 혼란 방지). 개발(py -m)
+    # 에서만 표시(레거시 소스 업데이트 경로).
     lbl = QtWidgets.QLabel("")
     btn_update = QtWidgets.QPushButton("⬇ 업데이트")
     btn_update.setVisible(False)
-    for b in (btn_up, btn_down, btn_log, btn_update):
-        b.setMinimumHeight(22)
-    row.addWidget(btn_up)
-    row.addWidget(btn_down)
-    row.addWidget(btn_log)
-    row.addWidget(lbl, 1)
-    row.addWidget(btn_update)
-    root_layout.addLayout(row)
+    if not _launcher:
+        row2 = QtWidgets.QHBoxLayout()
+        row2.setSpacing(4)
+        btn_update.setMinimumHeight(26)
+        row2.addWidget(lbl, 1)
+        row2.addWidget(btn_update)
+        root_layout.addLayout(row2)
     mw._cloud_lbl = lbl
     mw._cloud_btn_update = btn_update
 
