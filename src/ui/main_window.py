@@ -4360,6 +4360,14 @@ class MainWindow(QtWidgets.QMainWindow):
             cloud_panel.auto_upload_region_profiles(self)
         except Exception:
             pass
+        # 2026-06-28: 정지 시 로그도 업로드(사용자 지시 — 로그 디버깅 최우선).
+        # 기존엔 maps/region 만 올리고 로그는 누락 → 정지 후 확인 시 최신 로그가
+        # 클라우드에 없던 문제. maps 실패와 무관하게 별도 try 로 확실히.
+        try:
+            from . import cloud_panel
+            cloud_panel.auto_upload_log(self)
+        except Exception:
+            pass
         try:
             if self._analytics_timer.isActive():
                 self._analytics_timer.stop()
@@ -4482,8 +4490,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # ---- 라이선스 모니터(하트비트 + 주기 로그) — healer_gui 가 _auth 주입 후 호출 ----
     def start_license_monitors(self) -> None:
-        """하트비트(30s)로 동시실행 슬롯 유지 + 만료/킬스위치 감시, 로그 5분 주기
-        업로드. _auth(게이트 결과) 없으면 아무것도 안 함(게이트 미사용 환경)."""
+        """하트비트(30s, 라이선스 필요) + 로그 주기 업로드(라이선스 무관).
+        로그는 디버깅 최우선이라 게이트 미사용 환경에서도 반드시 주기 업로드."""
+        # 로그 주기 업로드는 _auth 와 독립 — 클라우드 설정만 있으면 항상 가동.
+        # (기존엔 _auth 없으면 통째 return 돼 주기 로그 업로드가 안 돌던 문제.)
+        self._start_log_uploader()
         auth = getattr(self, "_auth", None)
         if not auth or not auth.get("token") or not auth.get("client"):
             return
@@ -4492,9 +4503,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._hb_timer = QtCore.QTimer(self)
         self._hb_timer.timeout.connect(self._license_heartbeat)
         self._hb_timer.start(30000)
+
+    def _start_log_uploader(self) -> None:
+        """주기 로그 업로드 타이머(2분). 라이선스와 독립. 켜져 있는 동안 최신
+        세션 로그(전체)를 반복 upsert 해 누락 없이 수집. 중복 시작 방지."""
+        if getattr(self, "_log_upload_timer", None) is not None:
+            return
         self._log_upload_timer = QtCore.QTimer(self)
         self._log_upload_timer.timeout.connect(self._periodic_log_upload)
-        self._log_upload_timer.start(300000)   # 5분
+        self._log_upload_timer.start(120000)   # 2분
 
     def _license_heartbeat(self) -> None:
         if getattr(self, "_closing", False):

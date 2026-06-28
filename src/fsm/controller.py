@@ -293,13 +293,60 @@ class Follower:
     _SUNBI_Z_RE = re.compile(r"(?:제2)?선비족\d+-\d+\((\d+)\)\s*$")
     # 2026-06-20: 맵 학습(trail/grid) 저장 게이트용 구조 검증. 입구/허브/굴 정상
     # 구조만 통과 → OCR 오독('거적데기 백호의희원 3초' 등 27/233 파일 오염)이
-    # maps/*.json 으로 저장되는 것 차단. ocr._SUNBI_MAP_RE 와 동일 패턴.
+    # maps/*.json 으로 저장되는 것 차단.
+    # 2026-06-28: 본성입구/선녀의방/비밀통로/일본신궁 사냥터 라인 추가. 기존이
+    # 선비족 전용이라 새 사냥터는 trail push 가 통째 거부돼(782) 발자국이 안
+    # 쌓임 → 같은맵 추종 불가(힐러가 격수 못 따라감)였던 근본 해소. base 표기는
+    # 사용자 확정: 본성입구{1-7}/선녀의방{1-17}(1지역은 '제N' 생략)/비밀통로/
+    # 일본신궁. 함수명(_is_valid_sunbi_map)은 호출부 호환 위해 유지.
     _SUNBI_VALID_RE = re.compile(
-        r"^(?:제2)?선비족(?:입구|\d+방?|\d+(?:-\d+)?(?:\(\d+\))?)$")
+        r"^(?:제\d+)?(?:"
+        r"선비족(?:입구|\d+방?|\d+(?:-\d+)?(?:\(\d+\))?)"
+        r"|본성입구\d+|선녀의방\d+|무사의방\d+|닌자의방|비밀통로|일본신궁\d*"
+        r")$")
 
     @classmethod
     def _is_valid_sunbi_map(cls, m: str) -> bool:
         return bool(m) and bool(cls._SUNBI_VALID_RE.match(m))
+
+    # ---- 본성입구/선녀의방/무사의방/비밀통로 = 맵명별 고정 출구방향 ----
+    # (2026-06-28 사용자 실측). 선비족 z층 규칙과 달리 '떠나는 맵' 이름만으로
+    # 방향 확정(다음맵 무관). 제{x} 접두는 지역만 다르고 같은 번호면 같은 방향
+    # 으로 간주(맵 구조 동일). 무사의방10=출구없음(끝 맵)→테이블 제외(None→
+    # 기존 추정 fallback). 닌자의방 방향은 미제공(None).
+    _BONSUNG_EXIT = {1: "U", 2: "U", 3: "D", 4: "U", 5: "U", 6: "D", 7: "U"}
+    _SUNNYEO_EXIT = {1: "D", 2: "U", 3: "D", 4: "U", 5: "R", 6: "R", 7: "U",
+                     8: "U", 9: "D", 10: "U", 11: "U", 12: "U", 13: "U",
+                     14: "R", 15: "U", 16: "L", 17: "U"}
+    _MUSA_EXIT = {1: "R", 2: "R", 3: "U", 4: "U", 5: "D", 6: "R", 7: "R",
+                  8: "U", 9: "U"}  # 10=출구없음
+    _BIMIL_EXIT = "R"
+    _LINE_EXIT_RE = re.compile(
+        r"^(?:제\d+)?(본성입구|선녀의방|무사의방|비밀통로|닌자의방)(\d*)$")
+
+    @classmethod
+    def _line_exit_dir(cls, m):
+        """본성입구 라인 사냥터의 맵명별 고정 출구방향. 해당없으면 None.
+
+        떠나는 맵(prev/_exit_map) 이름만으로 결정. 선비족(_sunbi_exit_dir)보다
+        우선 적용하되 배타적(맵 base 가 다름). 무사의방10/닌자의방 등 미정은
+        None → 기존 추정(EXIT-BOUNDARY/PORTAL-DB) 으로 fallback.
+        """
+        if not m:
+            return None
+        mt = cls._LINE_EXIT_RE.match(m)
+        if not mt:
+            return None
+        base, num = mt.group(1), mt.group(2)
+        if base == "비밀통로":
+            return cls._BIMIL_EXIT
+        if base == "닌자의방":
+            return None
+        if not num:
+            return None
+        tbl = {"본성입구": cls._BONSUNG_EXIT, "선녀의방": cls._SUNNYEO_EXIT,
+               "무사의방": cls._MUSA_EXIT}.get(base)
+        return tbl.get(int(num)) if tbl else None
 
     @classmethod
     def _sunbi_exit_dir(cls, prev_map, new_map):
@@ -734,7 +781,8 @@ class Follower:
             # (_exit_map 기반 lock)는 맵전환 순간 맵명 오독 시 _exit_map 오염→
             # 0회 발동(173446 SUNBI-EXIT 0, U→D 처박). 그래서 lock 의존 대신
             # EXIT-FALLBACK 시점 현재 힐러맵으로 _sunbi_exit_dir 직접 재확인.
-            _sdir = self._sunbi_exit_dir(self._healer_map, self._last_map)
+            _sdir = (self._line_exit_dir(self._healer_map)
+                     or self._sunbi_exit_dir(self._healer_map, self._last_map))
             if _sdir is not None and self._exit_dir == _sdir:
                 cands = _ortho[self._exit_dir]
             else:
@@ -1014,7 +1062,10 @@ class Follower:
             # 선비족 z(층) 전환 고정 출구 방향 — 모든 추정의 최종 override
             # (사용자 2026-06-15: 굴/지역 무관 무조건 이 구조). 추정 오판
             # (EXIT-BOUNDARY R→U 등)을 원천 차단. coord는 기존값 유지.
-            sdir = self._sunbi_exit_dir(self._exit_map, s.map_name)
+            # 본성입구 라인(맵명 고정방향) 우선 → 없으면 선비족 z전환 규칙.
+            sdir = self._line_exit_dir(self._exit_map)
+            if sdir is None:
+                sdir = self._sunbi_exit_dir(self._exit_map, s.map_name)
             if sdir is not None:
                 if self.log is not None and sdir != self._exit_dir:
                     self.log.info(

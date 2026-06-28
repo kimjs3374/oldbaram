@@ -170,6 +170,10 @@ class CloudClient:
         h = dict(self._headers)
         h["x-upsert"] = "true"
         h["Content-Type"] = "text/plain; charset=utf-8"
+        # 덮어쓰기 즉시 반영 — CDN/브라우저가 옛 내용 캐시 못 하게(기본 3600s).
+        # sunbi-logs 는 같은 key 를 주기/정지/종료마다 덮어씀. 캐시되면 pull 시
+        # 옛 로그를 받아 '업데이트 안 됨'으로 보임(2026-06-28 근본 1 of 2).
+        h["cache-control"] = "no-cache, max-age=0"
         with open(local_path, "rb") as f:
             r = requests.post(
                 f"{self.url}/storage/v1/object/{LOG_BUCKET}/{key}",
@@ -196,9 +200,13 @@ class CloudClient:
         return r.json()
 
     def download_log(self, key: str) -> bytes:
+        # 캐시 우회 — 덮어쓴 최신 로그를 확실히 받도록 no-cache + 쿼리 버스터.
+        import time as _time
+        h = dict(self._headers)
+        h["Cache-Control"] = "no-cache"
         r = requests.get(
             f"{self.url}/storage/v1/object/public/{LOG_BUCKET}/{key}",
-            headers=self._headers, timeout=_TIMEOUT,
+            headers=h, params={"t": int(_time.time())}, timeout=_TIMEOUT,
         )
         r.raise_for_status()
         return r.content

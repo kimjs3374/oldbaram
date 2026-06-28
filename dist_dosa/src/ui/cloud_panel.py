@@ -49,12 +49,26 @@ def _latest_log():
     return logs[0] if logs else None
 
 
+def _flush_log_handlers() -> None:
+    """업로드 직전 logger FileHandler flush — 버퍼에 남은 최신 줄까지 파일에
+    반영(정지/종료 직후 마지막 로그가 누락되던 것 방지, 2026-06-28). 로그가
+    디버깅 최우선이라 빠짐없는 수집을 위해 모든 업로드 경로에서 선행."""
+    import logging
+    for _role in ("healer", "attacker"):
+        for _h in logging.getLogger(_role).handlers:
+            try:
+                _h.flush()
+            except Exception:
+                pass
+
+
 def _upload_current_log(mw):
     """현재 세션(가장 최근) 로그를 sunbi-logs/{계정}_{role}-{ip끝자리}/ 로 업로드.
 
     storage 경로는 ASCII 만 가능 → 로그인계정 + role + IP 끝자리(PC 구분)로.
     닉은 로그 헤더에도 남음.
     """
+    _flush_log_handlers()
     c = cloud_sync.CloudClient()
     sid = _log_sid(mw)
     p = _latest_log()
