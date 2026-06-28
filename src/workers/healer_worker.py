@@ -1223,17 +1223,18 @@ class HealerWorker(QtCore.QThread):
             # 상태를 다시 확인.
             def _cast(vk):
                 try:
-                    # 해당 VK 가 어떤 스킬 것인지 역매핑 + enabled 체크.
-                    _blocked = False
-                    for _sk in (_worker_self._skills or []):
-                        if int(_sk.vk) == int(vk) and not _sk.enabled:
-                            _blocked = True
-                            _worker_self.log.warning(
-                                f"[SKILL-BLOCK] vk={hex(vk)} "
-                                f"→ {_sk.name}(enabled=False) 시전 차단"
-                            )
-                            break
-                    if _blocked:
+                    # 이 vk 를 쓰는 스킬들 중 enabled=True 가 하나라도 있으면 시전.
+                    # 2026-06-28 버그수정: 키가 겹칠 때(예 파력무참=NUMPAD8 ON +
+                    # 금강불체=NUMPAD8 OFF) 기존 로직은 OFF 스킬 하나만 봐도 차단
+                    # → 켜진 파력무참까지 막혀 cast 28회 전부 SKILL-BLOCK, 키 0회
+                    # 전송(돟사 18시 로그). 같은 vk 의 스킬이 전부 OFF 일 때만 차단
+                    # (꺼진 키 오발사 방지)하고, 하나라도 ON 이면 통과.
+                    _for_vk = [s for s in (_worker_self._skills or [])
+                               if int(s.vk) == int(vk)]
+                    if _for_vk and not any(s.enabled for s in _for_vk):
+                        _worker_self.log.warning(
+                            f"[SKILL-BLOCK] vk={hex(vk)} → "
+                            f"{_for_vk[0].name}(전부 enabled=False) 차단")
                         return
                 except Exception:
                     pass

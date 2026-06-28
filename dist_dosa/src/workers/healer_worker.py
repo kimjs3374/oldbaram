@@ -1069,19 +1069,22 @@ class HealerWorker(QtCore.QThread):
                       f"method={cfg.input.method}")
         self.log.info(f"cfg.net port={cfg.net.port} "
                       f"bind={cfg.net.bind_host}")
+        # 추론 백엔드 진단. exe 경량 빌드는 onnxruntime CPU 전용(torch 미동봉).
         try:
-            import torch
+            import onnxruntime as _ort
+            self.log.info(f"[ENV] onnxruntime={_ort.__version__} "
+                          f"providers={_ort.get_available_providers()}")
+            self.log_msg.emit("[ENV] backend=onnxruntime CPU")
+        except Exception as e:
+            self.log.exception(f"onnxruntime 확인 실패: {e}")
+        try:
+            import torch  # GPU dev 환경에서만 존재. 경량 빌드엔 없음(정상).
             cuda_ok = torch.cuda.is_available()
             dev_name = torch.cuda.get_device_name(0) if cuda_ok else "CPU"
-            ver = torch.__version__
-            bcu = getattr(torch.version, "cuda", None)
-            self.log.info(f"[ENV] torch={ver} cuda_available={cuda_ok} "
-                          f"built_cuda={bcu} device={dev_name}")
-            self.log_msg.emit(f"[ENV] torch.cuda={cuda_ok} device={dev_name}")
-            if not cuda_ok:
-                self.log.warning("[ENV] CUDA 없음 → CPU 추론. FPS 낮음.")
-        except Exception as e:
-            self.log.exception(f"torch 확인 실패: {e}")
+            self.log.info(f"[ENV] torch={torch.__version__} cuda_available={cuda_ok} "
+                          f"built_cuda={getattr(torch.version, 'cuda', None)} device={dev_name}")
+        except Exception:
+            self.log.info("[ENV] torch 미설치 → onnxruntime 전용 빌드(정상)")
         try:
             hwnd = None
             if cfg.input.target_window.lower().endswith(".exe"):
@@ -1220,17 +1223,18 @@ class HealerWorker(QtCore.QThread):
             # 상태를 다시 확인.
             def _cast(vk):
                 try:
-                    # 해당 VK 가 어떤 스킬 것인지 역매핑 + enabled 체크.
-                    _blocked = False
-                    for _sk in (_worker_self._skills or []):
-                        if int(_sk.vk) == int(vk) and not _sk.enabled:
-                            _blocked = True
-                            _worker_self.log.warning(
-                                f"[SKILL-BLOCK] vk={hex(vk)} "
-                                f"→ {_sk.name}(enabled=False) 시전 차단"
-                            )
-                            break
-                    if _blocked:
+                    # 이 vk 를 쓰는 스킬들 중 enabled=True 가 하나라도 있으면 시전.
+                    # 2026-06-28 버그수정: 키가 겹칠 때(예 파력무참=NUMPAD8 ON +
+                    # 금강불체=NUMPAD8 OFF) 기존 로직은 OFF 스킬 하나만 봐도 차단
+                    # → 켜진 파력무참까지 막혀 cast 28회 전부 SKILL-BLOCK, 키 0회
+                    # 전송(돟사 18시 로그). 같은 vk 의 스킬이 전부 OFF 일 때만 차단
+                    # (꺼진 키 오발사 방지)하고, 하나라도 ON 이면 통과.
+                    _for_vk = [s for s in (_worker_self._skills or [])
+                               if int(s.vk) == int(vk)]
+                    if _for_vk and not any(s.enabled for s in _for_vk):
+                        _worker_self.log.warning(
+                            f"[SKILL-BLOCK] vk={hex(vk)} → "
+                            f"{_for_vk[0].name}(전부 enabled=False) 차단")
                         return
                 except Exception:
                     pass
@@ -3426,9 +3430,10 @@ class HealerWorker(QtCore.QThread):
         # 격수 반대로 가 STUCK-ALIGN↔ORTHO 진동(1737회/23분 주범). 대기로
         # 바꿔 멀어지지 않게 — 격수가 사냥 중 움직이면 추종 재개. 3.0s+ 면
         # 아래 RESET 로 폴백(진짜 끼임 대비).
-        # 2026-06-16(2차): v99 HOLD가 격수가 추종축으로 멀리(4칸) 있을 때도
-        # 대기시켜 추종실패("격수 움직이는데 힐러 멈춤") 유발 → HOLD 는 격수
-        # 근접(추종축 거리 ≤2칸)일 때만. 멀면 ORTHO 우회로 추종.
+        # 2026-06-16(2차): v99 HOLD가 격수가 추종축으로 4칸 떨어진 상황에서도
+        # 대기시켜 "격수 움직이는데 힐러 멈춤"(추종실패) 유발(142156 로그
+        # atk 2→1 이동 중 힐러 (5,19) 정지). → HOLD 는 격수가 가까울 때(추종축
+        # 거리 ≤2칸, 이미 도착해 미세정렬 중)만. 멀면 아래 ORTHO 우회로 추종.
         if want in ("U", "D"):
             _follow_dist = abs(atk.y - hy) if a_valid else 99
         else:
@@ -3801,15 +3806,13 @@ class HealerWorker(QtCore.QThread):
                     f"MAP-JUMP-HOLD STAY "
                     f"remain={(self._map_jump_hold_until-now_jg):.2f}s"
                 )
-        # 2026-06-16 추종 재설계 (근본): 같은 맵에서도 격수 trail(발자국) 우선.
-        # 기존엔 같은 맵 = B3 직선 to_target 뿐 → 5층 미로서 격수가 우회한 벽에
-        # 직진 박혀 STUCK-ALIGN 596 폭발(따라오다 멈춤·사냥 느림·파력 dist 실패).
-        # feedback_route_trail "격수 경로 그대로 밟기, 지름길 금지" 정책을 같은 맵
-        # 추종에도 적용. 격수가 2칸 이상 떨어지면(dist>1) trail wp 따라(격수가
-        # 통과한 통로라 안 막힘). 바로 옆(dist≤1)만 아래 직선(자연스러운 뒤따름).
-        # 2026-06-19: 기존 dist>2 는 격수 2칸 근접 시 직선만 타다 막혀 STUCK-HOLD
-        # 24건 전부 dist=2(격수정렬+직선막힘, h=(3,10) atk=(5,10) 등)로 멈춤 →
-        # dist>1 로 넓혀 2칸도 발자국 우회. trail 없으면 직선 fallback(악화불가).
+        # 같은 맵에서도 격수 trail(발자국) 우선 추종. 격수가 우회한 통로를 그대로
+        # 밟아 미로 벽 STUCK 회피(B3T:TRAIL). 격수 2칸 이상 떨어지면 발동, 바로
+        # 옆(≤1)은 아래 직선. trail 없으면 직선 fallback.
+        # 🔴 2026-06-20 v113 롤백: B3D:DIRECT(격수 직선 지름길, is_wall 안막히면
+        # 직진)를 넣었다가 STUCK-ALIGN 83→294(3.5배) 악화로 즉시 복원. is_wall
+        # 학습 데이터 부족(maps blocked 거의 빔) → "안 막힌 줄 알고 직진→실제벽
+        # 박힘→STUCK" 반복. 격수가 검증한 trail 이 더 안전. 직선 지름길 재시도 금지.
         if h is not None and a_valid:
             _hx, _hy = h
             if abs(atk.x - _hx) + abs(atk.y - _hy) > 1:
