@@ -25,6 +25,22 @@ def make_sid(role: str, idx: int) -> str:
     return "attacker" if role == "attacker" else f"healer-{int(idx)}"
 
 
+def _log_sid(mw) -> str:
+    """로그 storage 경로 = 로그인계정/역할-IP끝자리.
+
+    라이선스 로그인 계정(mw._auth['username'])이 있으면 계정을 **상위 폴더**로
+    두어 버킷에서 계정별로 정리됨(sunbi-logs/{계정}/{역할-IP끝자리}/...).
+    storage key 는 ASCII 만 허용 → 계정명 비ASCII 문자는 제거. 게이트
+    미사용(계정 없음)이면 기존 '역할-IP끝자리' 단일 폴더 그대로.
+    """
+    import re
+    from ..utils.logger_setup import local_ip_suffix
+    base = f"{mw.role}-{local_ip_suffix()}"
+    auth = getattr(mw, "_auth", None) or {}
+    user = re.sub(r"[^A-Za-z0-9._-]+", "", str(auth.get("username") or ""))
+    return f"{user}/{base}" if user else base
+
+
 def _latest_log():
     if not _LOG_DIR.is_dir():
         return None
@@ -34,13 +50,13 @@ def _latest_log():
 
 
 def _upload_current_log(mw):
-    """현재 세션(가장 최근) 로그를 sunbi-logs/{role}-{ip끝자리}/ 로 업로드.
+    """현재 세션(가장 최근) 로그를 sunbi-logs/{계정}_{role}-{ip끝자리}/ 로 업로드.
 
-    storage 경로는 ASCII 만 가능 → role + IP 끝자리(PC 구분)로. 닉은 로그 헤더.
+    storage 경로는 ASCII 만 가능 → 로그인계정 + role + IP 끝자리(PC 구분)로.
+    닉은 로그 헤더에도 남음.
     """
-    from ..utils.logger_setup import local_ip_suffix
     c = cloud_sync.CloudClient()
-    sid = f"{mw.role}-{local_ip_suffix()}"
+    sid = _log_sid(mw)
     p = _latest_log()
     if p is None:
         return None
