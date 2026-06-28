@@ -4497,6 +4497,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._log_upload_timer.start(300000)   # 5분
 
     def _license_heartbeat(self) -> None:
+        if getattr(self, "_closing", False):
+            return  # 종료 중엔 하트비트 무시(logout 후 no_session 오인 방지)
         try:
             r = self._lic_client.heartbeat(self._lic_token)
         except Exception:
@@ -4524,6 +4526,14 @@ class MainWindow(QtWidgets.QMainWindow):
             pass
 
     def closeEvent(self, ev):
+        # 종료 시작 — 하트비트/로그 타이머부터 정지. (정지 안 하면 logout 직후
+        # 하트비트가 한 번 더 돌아 no_session 을 받고 "세션 종료" 경고를 띄움)
+        self._closing = True
+        for _t in ("_hb_timer", "_log_upload_timer"):
+            try:
+                getattr(self, _t).stop()
+            except Exception:
+                pass
         # 라이선스 세션 반환 — 동시실행 슬롯 즉시 해제(다음 실행 차단 방지).
         try:
             _tok = getattr(self, "_lic_token", None)
