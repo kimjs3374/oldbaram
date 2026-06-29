@@ -74,6 +74,54 @@ def _snap_known(s: str) -> str:
     return best or s
 
 
+# 2026-06-29: 글자 자체 오독(입구→입국, 본성입구→본성인구) fuzzy 사전 매칭.
+# OCR 이 글자를 틀려도 알려진 맵명 후보 중 가장 가까운 것으로 스냅 = 유한
+# 집합 분류. 🔴 회귀 안전 2겹: ① 숫자 시퀀스가 **정확히 동일**해야 매칭(본성
+# 입구5↔6, 선비족 굴↔허브 차단) ② base 한글 편집거리 **1 이하** ③ 후보 정확히
+# 1개일 때만 교정(애매하면 원본).
+# fuzzy 대상 = 단순/단일 맵 + 선비족 **입구만**. 선비족 허브(선비족N)/방
+# (선비족N방)/굴(X-Y(Z))은 제외 — 허브를 넣으면 '선비족5방'이 '선비족5'(허브)
+# 와 편집거리1(방 삭제)+숫자동일로 오매칭돼 깨짐(검증서 발견). 허브/방/굴 글자
+# 오독은 기존 처리(하드코딩/구조검증/canonicalize)가 담당. 입구만 추가해도
+# 사용자 핵심 케이스('선비족입국'→'선비족입구') 커버.
+def _build_fuzzy_set() -> set:
+    s = set(_KNOWN_SET)
+    for p in [""] + [f"제{n}" for n in range(1, 11)]:
+        s.add(f"{p}선비족입구")
+    return s
+
+
+_FUZZY_SET = _build_fuzzy_set()
+_DIGIT_RE = re.compile(r"\d")
+
+
+def _digits_of(s: str) -> str:
+    return "".join(_DIGIT_RE.findall(s))
+
+
+def _edit_le1(a: str, b: str) -> bool:
+    """편집거리 ≤ 1 (치환/삽입/삭제 1글자)."""
+    if a == b:
+        return True
+    la, lb = len(a), len(b)
+    if abs(la - lb) > 1:
+        return False
+    if la == lb:
+        return sum(c1 != c2 for c1, c2 in zip(a, b)) == 1
+    if la > lb:
+        a, b = b, a            # a = 짧은 쪽
+    return any(a == b[:i] + b[i + 1:] for i in range(len(b)))
+
+
+def _match_fuzzy(s: str) -> str:
+    """알려진 맵명 사전에 fuzzy 매칭(숫자 동일 + base 편집거리1, 단일 후보)."""
+    if not s or s in _FUZZY_SET:
+        return s
+    sd = _digits_of(s)
+    cands = [k for k in _FUZZY_SET if _digits_of(k) == sd and _edit_le1(s, k)]
+    return cands[0] if len(cands) == 1 else s
+
+
 def ready() -> bool:
     return _REC.exists() and _DICT.exists()
 
@@ -175,6 +223,8 @@ def _normalize_struct(s: str) -> str:
     s = re.sub(r"^((?:제\d+)?(?:비밀통로|닌자의방)).*$", r"\1", s)
     # 끝 노이즈 일반 처리(집합 prefix 스냅). 선비족/기타는 집합 밖이라 불변.
     s = _snap_known(s)
+    # 글자 자체 오독(입국→입구 등) 사전 fuzzy 매칭(숫자 동일+편집거리1, 단일후보).
+    s = _match_fuzzy(s)
     return s
 
 
