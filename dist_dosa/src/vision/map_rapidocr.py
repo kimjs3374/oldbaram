@@ -93,6 +93,9 @@ def _normalize_struct(s: str) -> str:
     if not s:
         return s
     s = s.strip("-")
+    # 2026-06-29: '본성입구'의 '입'을 '인'으로 오독('본성인구') 교정(실측 로그).
+    # base 불일치로 그 맵만 trail 안 쌓이고 출구방향이 추정으로 빠지던 것 방지.
+    s = s.replace("본성인구", "본성입구")
     open_n = s.count("(")
     close_n = s.count(")")
     if open_n > close_n:
