@@ -37,6 +37,42 @@ def _intra_threads() -> int:
 # 맵명 유효 문자: 한글/숫자/괄호/하이픈. 끝 영문(횃불 오인 G 등) 제거.
 _KEEP = re.compile(r"[^가-힣0-9()\-]")
 
+# 2026-06-29: 끝 노이즈 일반 해결 — 알려진 단순 맵명 집합(번호 범위 전개)에
+# raw 를 prefix 스냅. raw 가 집합 원소로 시작하면 그 최장 원소로 잘라 뒤 잉여
+# (글자/숫자: '본성입구5데','본성입구56' 등)를 제거한다. 하드코딩 정규식을
+# 맵마다 추가하던 것 대체.
+# 🔴 회귀 안전: 선비족/흉노족/기타 복잡·미정의 맵은 집합에 **안 넣는다** →
+#   _snap_known 이 원본을 그대로 반환하므로 기존 처리(하드코딩/구조검증) 불변.
+#   번호 범위가 집합에 반영(본성입구 1~7 만)되어 '본성입구56'→'본성입구5' 처럼
+#   범위 밖 숫자도 유효 prefix 까지만 남는다.
+_NUMBERED_MAPS = {"본성입구": 7, "선녀의방": 17, "무사의방": 10}
+_SINGLE_MAPS = ("비밀통로", "닌자의방", "일본신궁")
+
+
+def _build_known_set() -> set:
+    out = set()
+    prefixes = [""] + [f"제{n}" for n in range(1, 11)]
+    for p in prefixes:
+        for base, hi in _NUMBERED_MAPS.items():
+            for i in range(1, hi + 1):
+                out.add(f"{p}{base}{i}")
+        for base in _SINGLE_MAPS:
+            out.add(f"{p}{base}")
+    return out
+
+
+_KNOWN_SET = _build_known_set()
+
+
+def _snap_known(s: str) -> str:
+    """raw 가 알려진 맵명으로 시작하면 그 최장 맵명으로 스냅(뒤 노이즈 제거).
+    집합에 없으면(선비족/기타) 원본 그대로 → 기존 처리 불변(회귀 0)."""
+    best = ""
+    for k in _KNOWN_SET:
+        if len(k) > len(best) and s.startswith(k):
+            best = k
+    return best or s
+
 
 def ready() -> bool:
     return _REC.exists() and _DICT.exists()
@@ -137,6 +173,8 @@ def _normalize_struct(s: str) -> str:
     # 불가(사용자 신고). base 로 시작하면 뒤를 통째로 잘라 정규화(단일맵이라
     # 안전) → trail 추종으로 통과(본성입구3→비밀통로→본성입구4).
     s = re.sub(r"^((?:제\d+)?(?:비밀통로|닌자의방)).*$", r"\1", s)
+    # 끝 노이즈 일반 처리(집합 prefix 스냅). 선비족/기타는 집합 밖이라 불변.
+    s = _snap_known(s)
     return s
 
 
