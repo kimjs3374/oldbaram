@@ -123,10 +123,12 @@ def update() -> None:
     if not bv or not manifest:
         _log("배포 manifest 없음 → 기존 실행")
         return
-    if _local_version() == bv:
-        _log(f"최신 v{bv}")
-        return
-    _log(f"업데이트 → v{bv} (변경분 확인...)")
+    # 2026-06-29: build_version 문자열만으로 스킵하지 않는다. 같은 버전 번호로
+    # dist 내용이 바뀔 수 있고(소스/exe 채널에 같은 0.1.6 을 중복 발행한 사고),
+    # 그 경우 로컬 .version==bv 라 다운로드를 통째 스킵해 신버전이 영영 미반영
+    # 됐다. → 항상 manifest sha 와 로컬 파일을 대조해 실제 변경분만 받는다.
+    # (버전 문자열은 참고용 로그/기록으로만.)
+    _log(f"버전 확인 v{bv} (manifest sha 대조...)")
     got = 0
     for entry in manifest:
         rel_path = entry.get("path")
@@ -144,7 +146,7 @@ def update() -> None:
             _download(f"app/{rel_path}", dest)
         got += 1
     VERSION_FILE.write_text(bv, encoding="utf-8")
-    _log(f"업데이트 완료 — {got}개 파일")
+    _log(f"최신 v{bv}" if got == 0 else f"업데이트 완료 — {got}개 파일")
 
 
 def launch_main() -> None:
