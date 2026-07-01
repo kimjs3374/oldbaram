@@ -3178,6 +3178,41 @@ class HealerWorker(QtCore.QThread):
                 pass
         return out
 
+    def _slot_order(self, atk) -> int:
+        """다봇 슬롯 순서(0=격수 바로 뒤 선두). 같은맵 봇들을 정렬키
+        (role, -parlyuk, idx)로 세워 내 위치 반환 → 격수로부터 (order+1)칸 뒤가
+        내 자리. 도사(role0) 먼저, 도사끼리 파력쿨 큰(최근 시전) 앞, 그다음 idx,
+        쩔캐(role1) 맨뒤. 봇 수 무관. peers 없거나 나 혼자면 0(선두).
+
+        🔴 회귀 안전: peers 에 role/parlyuk 없는 구버전 격수면 e 길이<5 → role=0
+        (도사)/parlyuk=-1 기본 → idx 순 정렬(기존과 동일 순서). 파싱 실패도 0.
+        """
+        my_idx = int(getattr(self.cfg.net, "healer_idx", 0))
+        my_role = 1 if getattr(self, "jjeol_mode", False) else 0
+        try:
+            my_pk = int(self._timer_parlyuk.remaining())
+        except Exception:
+            my_pk = -1
+        hm = self.healer_map
+        bots = [(my_role, my_pk, my_idx)]
+        try:
+            raw = json.loads(getattr(atk, "peers", "") or "[]")
+        except Exception:
+            raw = []
+        for e in raw:
+            try:
+                if len(e) >= 4 and int(e[0]) != my_idx and str(e[1]) == hm:
+                    r = int(e[4]) if len(e) >= 5 else 0
+                    pk = int(e[5]) if len(e) >= 6 else -1
+                    bots.append((r, pk, int(e[0])))
+            except Exception:
+                pass
+        bots.sort(key=lambda b: (b[0], -b[1], b[2]))
+        for i, b in enumerate(bots):
+            if b[2] == my_idx and b[0] == my_role:
+                return i
+        return 0
+
     def _avoid_peer_collision(self, want, reason, atk):
         """§1: want 다음칸에 다른 캐릭 있으면(겹침 불가=일시 장애물) 직교 회피.
 
@@ -3211,11 +3246,11 @@ class HealerWorker(QtCore.QThread):
         if self._jipok_hold_move:
             return "-", "JIPOK-HOLD 방향키 중단 (지폭지술 시퀀스 중)"
         want, reason = self._decide_move_raw(atk, fol, map_neq)
-        # 2026-06-15 사용자 재요청: PEER-AVOID 재활성 — 다른 캐릭 칸이면 옆으로
-        # 즉시 우회(엉킴 방지). 단 맵 전환 중(map_neq)엔 trail 추종 우선이라
-        # 우회 안 함(7층류 trail 이탈 방지). 같은 맵 추종 시에만 적용.
-        if not map_neq:
-            want, reason = self._avoid_peer_collision(want, reason, atk)
+        # 2026-06-30: 같은 맵 PEER-AVOID(옆으로 즉시 우회) 제거. 슬롯 체인
+        # (B3T-SLOT: 각 봇이 격수 trail 위 order+1 칸 자리로)이 자리 분리를
+        # 담당하므로 옆 회피 불필요. 특히 격수 정지 시 옆으로 새다 trail 이탈해
+        # 헤매고 거리 멀어지던 것(사용자 실측 효율 10%+ 저하)이 근본 제거됨.
+        # 슬롯이 못 잡는 순간 겹침은 STUCK-HOLD/RESET 이 처리.
         return self._apply_stuck_filter(want, reason, atk, fol, map_neq)
 
 
@@ -3815,18 +3850,24 @@ class HealerWorker(QtCore.QThread):
         # 박힘→STUCK" 반복. 격수가 검증한 trail 이 더 안전. 직선 지름길 재시도 금지.
         if h is not None and a_valid:
             _hx, _hy = h
-            if abs(atk.x - _hx) + abs(atk.y - _hy) > 1:
-                _twp = fol.next_waypoint(self.healer_map, h, tol=1,
-                                         exit_dash=False)
-                if _twp is not None:
-                    (_wx, _wy), _ = _twp
-                    _dx, _dy = _wx - _hx, _wy - _hy
-                    if _dx != 0 or _dy != 0:
-                        if abs(_dx) >= abs(_dy):
-                            _w = "R" if _dx > 0 else "L"
-                        else:
-                            _w = "D" if _dy > 0 else "U"
-                        return _w, f"B3T:TRAIL→{(_wx,_wy)} d=({_dx},{_dy})"
+            # 2026-06-30 슬롯 체인: 격수 trail 위 내 자리(격수 뒤 order+1 칸)로.
+            # order=_slot_order(도사→쩔캐, 파력최근 앞). 격수 2칸초과 조건 제거 —
+            # 항상 슬롯 자리 기준(멀면 이동, 자리 도달=PARK 줄서기). 격수 정지 시
+            # 각자 자리에 줄서므로 회피기동(옆으로 새서 거리 멀어짐)이 사라짐.
+            # trail 없을 때만 아래 B3(격수 뒤 1칸) fallback.
+            _order = self._slot_order(atk)
+            _twp = fol.next_waypoint(self.healer_map, h, tol=1,
+                                     exit_dash=False, stop_before=_order + 1)
+            if _twp is not None:
+                (_wx, _wy), _ = _twp
+                _dx, _dy = _wx - _hx, _wy - _hy
+                if _dx != 0 or _dy != 0:
+                    if abs(_dx) >= abs(_dy):
+                        _w = "R" if _dx > 0 else "L"
+                    else:
+                        _w = "D" if _dy > 0 else "U"
+                    return _w, f"B3T-SLOT order={_order}→{(_wx,_wy)} d=({_dx},{_dy})"
+                return "-", f"B3-SLOT-PARK order={_order} at=({_wx},{_wy})"
         # 2026-04-23 추종 거리 정책화: atk_dir 복제 대신 "격수 뒤 N칸" 가상
         # 타겟으로 이동. atk_dir 복제는 힐러가 격수와 동일/앞 좌표에서도 같은
         # 방향으로 전진해 앞지름 → 몹 어그로 끌기 (힐러1.txt 10:29:05 재현).

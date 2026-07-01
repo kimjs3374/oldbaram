@@ -390,11 +390,16 @@ class AttackerWorker(QtCore.QThread):
                         try:
                             if hasattr(self._app, "set_peer_coord"):
                                 _hm = str(getattr(rep, "healer_map", "") or "")
+                                # role: 쩔캐(현인)=cd_jipok≥0 → 1, 도사 → 0.
+                                # parlyuk: 도사 파력 남은쿨(슬롯 순서=최근 시전 앞).
+                                _cj = int(getattr(rep, "cd_jipok", -1))
                                 self._app.set_peer_coord(
                                     int(getattr(rep, "src_idx", 0)), _hm,
                                     int(getattr(rep, "healer_x", 0)),
                                     int(getattr(rep, "healer_y", 0)),
                                     bool(_hm),
+                                    1 if _cj >= 0 else 0,
+                                    int(getattr(rep, "cd_parlyuk", -1)),
                                 )
                         except Exception:
                             pass

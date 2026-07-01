@@ -1279,8 +1279,12 @@ class Follower:
         return list(t)
 
     def next_waypoint(self, map_name: str, healer_coord, tol: int = 2,
-                      exit_dash: bool = False):
+                      exit_dash: bool = False, stop_before: int = 0):
         """도사가 trail을 **순서대로** 따라가도록 다음 타겟 반환.
+
+        stop_before>0 (슬롯 추종): 끝(격수)에서 그만큼 앞 칸을 상한으로 삼아
+        격수 뒤 stop_before 칸에 정지(exit_dir 안 밈). 격수 이동하면 trail 이
+        늘어 상한도 밀착 따라감. 0=기존(끝까지 + 끝 도달 시 exit_dir 밀기).
 
         단조 진행 정책: `_map_progress[map_name]` idx는 증가만 함.
         도사가 trail[idx] 도달(tol 내)하면 idx += 1. 절대 뒤로 안 감.
@@ -1304,7 +1308,10 @@ class Follower:
             self._wp_last_diag = {"map": map_name, "reason": "no_trail"}
             return None
         cur = self._map_progress.get(map_name, 0)
-        last_idx = len(trail) - 1
+        # 슬롯 추종: 끝(격수)에서 stop_before 칸 앞이 내 상한. 아래 snap/진행/
+        # 도달 로직이 전부 이 last_idx 기준으로 돌아 격수 뒤 그 칸에 멈춘다.
+        # stop_before=0 → 진짜 끝 → 기존 동작 완전 동일(회귀 0).
+        last_idx = max(0, (len(trail) - 1) - int(stop_before))
         if cur > last_idx:
             cur = last_idx
         if healer_coord is None:
@@ -1396,6 +1403,13 @@ class Follower:
         # cur 단조 증가 + snap-forward(thr=10) 지름길 방지 조합으로 "trail 순서대로
         # 밟기" 정책 유지됨. 끝 도달 후 exit_dir 밀기는 feedback_route_trail.md 정책.
         if cur >= last_idx:
+            # 슬롯 추종(stop_before>0): 내 자리(격수 뒤 stop_before 칸) 도달 →
+            # 그 자리 정지 target 반환(exit_dir 안 밈; 같은맵 줄서기). 격수 이동
+            # 하면 last_idx 가 늘어 다시 advancing.
+            if stop_before > 0:
+                base_diag["reason"] = "slot_reached"
+                self._wp_last_diag = base_diag
+                return (trail[last_idx], self._map_last_dir.get(map_name, "-"))
             # exit_dash 최종 목표 (2026-06-10): trail 끝점 대신 **보정된
             # 출구좌표**(_exit_coord — EXIT-BOUNDARY/PORTAL-DB 반영값).
             # trail 끝점은 오염 가능(EXIT-TRIM이 못 자른 케이스: 경계 미발견),

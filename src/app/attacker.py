@@ -259,15 +259,19 @@ class Attacker:
         _same_gul = (_cz is not None and _cz == self._jipok_cast_z)
         self._jjeol_jipok_ready = bool(cd_ready or _same_gul)
 
-    def set_peer_coord(self, idx, map_name, x, y, valid: bool) -> None:
-        """§1: 힐러/쩔캐 좌표를 모아 State.peers 로 broadcast(충돌 회피).
+    def set_peer_coord(self, idx, map_name, x, y, valid: bool,
+                       role: int = 0, parlyuk: int = -1) -> None:
+        """§1: 힐러/쩔캐 좌표+역할+파력쿨을 모아 State.peers 로 broadcast.
 
-        valid=False(좌표 미관측)면 제거 → 옛 좌표로 잘못 회피하는 것 방지.
+        좌표는 충돌 회피/슬롯 추종, role/parlyuk 은 슬롯 순서 계산용(2026-06-30):
+          role: 0=도사, 1=쩔캐(맨뒤 배치). parlyuk: 도사 파력 남은쿨(최근 시전
+          =큰 값 → 슬롯 앞). valid=False(좌표 미관측)면 제거(옛 좌표 회피 방지).
         """
         try:
             i = int(idx)
             if valid:
-                self._peer_coords[i] = (str(map_name or ""), int(x), int(y))
+                self._peer_coords[i] = (str(map_name or ""), int(x), int(y),
+                                        int(role), int(parlyuk))
             else:
                 self._peer_coords.pop(i, None)
         except Exception:
@@ -586,8 +590,8 @@ class Attacker:
                 jipok_seq=self._jipok_seq,
                 jjeol_jipok_ready=self._jjeol_jipok_ready,
                 peers=json.dumps([
-                    [i, m, x, y]
-                    for i, (m, x, y) in self._peer_coords.items()
+                    [i, m, x, y, r, pk]
+                    for i, (m, x, y, r, pk) in self._peer_coords.items()
                 ]),
                 hp_pct=_hp_pct,
                 mp_pct=_mp_pct,
