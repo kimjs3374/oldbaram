@@ -1339,7 +1339,7 @@ class HealerWorker(QtCore.QThread):
                     _hx = int(_hc[0]) if _hc is not None else 0
                     _hy = int(_hc[1]) if _hc is not None else 0
                     rep = CooldownReport(
-                        src_idx=int(getattr(cfg.net, "healer_idx", 0)),
+                        src_idx=_worker_self._peer_idx(),
                         ts_ms=now_ms(),
                         armed=bool(_worker_self.armed),
                         event_text=str(text),
@@ -2886,9 +2886,7 @@ class HealerWorker(QtCore.QThread):
                                 except Exception:
                                     pass
                                 rep = CooldownReport(
-                                    src_idx=int(getattr(
-                                        cfg.net, "healer_idx", 0
-                                    )),
+                                    src_idx=self._peer_idx(),
                                     cd_parlyuk=int(p_rem),
                                     cd_baekho=int(b_rem),
                                     cd_jipok=self._jipok_cd_remaining(),
@@ -3161,13 +3159,24 @@ class HealerWorker(QtCore.QThread):
     # (2)굴/7층 STUCK 로그에서 D키→y증가 확인. 기존 U:(0,1)/D:(0,-1)은 반대였음.
     _PEER_DXY = {"L": (-1, 0), "R": (1, 0), "U": (0, -1), "D": (0, 1)}
 
+    def _peer_idx(self) -> int:
+        """peers/슬롯용 고유 봇 번호 = IP 끝자리(정수). 2026-07-01: 사용자가
+        healer_idx 를 각 PC 다르게 설정 안 하면(3명 다 0) peers 가 서로 덮어써
+        슬롯/회피가 통째 무력화됨 → IP 끝자리로 자동 고유 구분(설정 불필요).
+        IP 조회 실패 시에만 healer_idx fallback."""
+        try:
+            from ..utils.logger_setup import local_ip_suffix
+            return int(local_ip_suffix())
+        except Exception:
+            return int(getattr(self.cfg.net, "healer_idx", 0))
+
     def _parse_peers(self, atk) -> set:
         """§1: State.peers 에서 같은맵 다른 캐릭 좌표 집합(자기 idx 제외)."""
         try:
             raw = json.loads(getattr(atk, "peers", "") or "[]")
         except Exception:
             return set()
-        my_idx = int(getattr(self.cfg.net, "healer_idx", -1))
+        my_idx = self._peer_idx()
         hm = self.healer_map
         out = set()
         for e in raw:
@@ -3187,7 +3196,7 @@ class HealerWorker(QtCore.QThread):
         🔴 회귀 안전: peers 에 role/parlyuk 없는 구버전 격수면 e 길이<5 → role=0
         (도사)/parlyuk=-1 기본 → idx 순 정렬(기존과 동일 순서). 파싱 실패도 0.
         """
-        my_idx = int(getattr(self.cfg.net, "healer_idx", 0))
+        my_idx = self._peer_idx()
         my_role = 1 if getattr(self, "jjeol_mode", False) else 0
         try:
             my_pk = int(self._timer_parlyuk.remaining())
