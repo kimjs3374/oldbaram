@@ -3859,24 +3859,22 @@ class HealerWorker(QtCore.QThread):
         # 박힘→STUCK" 반복. 격수가 검증한 trail 이 더 안전. 직선 지름길 재시도 금지.
         if h is not None and a_valid:
             _hx, _hy = h
-            # 2026-06-30 슬롯 체인: 격수 trail 위 내 자리(격수 뒤 order+1 칸)로.
-            # order=_slot_order(도사→쩔캐, 파력최근 앞). 격수 2칸초과 조건 제거 —
-            # 항상 슬롯 자리 기준(멀면 이동, 자리 도달=PARK 줄서기). 격수 정지 시
-            # 각자 자리에 줄서므로 회피기동(옆으로 새서 거리 멀어짐)이 사라짐.
-            # trail 없을 때만 아래 B3(격수 뒤 1칸) fallback.
-            _order = self._slot_order(atk)
-            _twp = fol.next_waypoint(self.healer_map, h, tol=1,
-                                     exit_dash=False, stop_before=_order + 1)
-            if _twp is not None:
-                (_wx, _wy), _ = _twp
-                _dx, _dy = _wx - _hx, _wy - _hy
-                if _dx != 0 or _dy != 0:
-                    if abs(_dx) >= abs(_dy):
-                        _w = "R" if _dx > 0 else "L"
-                    else:
-                        _w = "D" if _dy > 0 else "U"
-                    return _w, f"B3T-SLOT order={_order}→{(_wx,_wy)} d=({_dx},{_dy})"
-                return "-", f"B3-SLOT-PARK order={_order} at=({_wx},{_wy})"
+            # 2026-07-01 슬롯 롤백(사용자): order 변동/우회로 오히려 악화 →
+            # 기존 방식 복원 = 격수 발자국(trail) 그대로 끝까지 추종 + 회피 없이
+            # (_avoid_peer_collision 는 _decide_move 에서 이미 제거된 채 유지).
+            # 격수 2칸 초과면 발자국 따라, 근접은 아래 B3.
+            if abs(atk.x - _hx) + abs(atk.y - _hy) > 1:
+                _twp = fol.next_waypoint(self.healer_map, h, tol=1,
+                                         exit_dash=False)
+                if _twp is not None:
+                    (_wx, _wy), _ = _twp
+                    _dx, _dy = _wx - _hx, _wy - _hy
+                    if _dx != 0 or _dy != 0:
+                        if abs(_dx) >= abs(_dy):
+                            _w = "R" if _dx > 0 else "L"
+                        else:
+                            _w = "D" if _dy > 0 else "U"
+                        return _w, f"B3T:TRAIL→{(_wx,_wy)} d=({_dx},{_dy})"
         # 2026-04-23 추종 거리 정책화: atk_dir 복제 대신 "격수 뒤 N칸" 가상
         # 타겟으로 이동. atk_dir 복제는 힐러가 격수와 동일/앞 좌표에서도 같은
         # 방향으로 전진해 앞지름 → 몹 어그로 끌기 (힐러1.txt 10:29:05 재현).
