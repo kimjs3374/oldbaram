@@ -24,6 +24,7 @@ cd /d D:\oldbaram
   --include-package-data=rapidocr_onnxruntime ^
   --include-data-files=src/vision/korean_rec.onnx=src/vision/korean_rec.onnx ^
   --include-data-files=src/vision/digit_cnn.onnx=src/vision/digit_cnn.onnx ^
+  --include-data-files=src/fsm/nav_policy.onnx=src/fsm/nav_policy.onnx ^
   --include-data-files=src/vision/korean_dict.txt=src/vision/korean_dict.txt ^
   --include-data-files=config.yaml=config.yaml ^
   --include-data-files=knownmaps.txt=knownmaps.txt ^

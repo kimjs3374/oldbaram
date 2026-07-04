@@ -46,3 +46,4 @@ fsm:
   red_lost_sec: 1.0
   stuck_sec: 3.0
   dead_reckon_sec: 2.0
+  nav_mode: shadow   # NavBrain 경로학습: off|shadow|on (경로 딥러닝 학습.md). shadow=로그만

@@ -126,6 +126,10 @@ class FsmCfg:
     red_lost_sec: float = 1.0          # 빨탭 1초 미검출 → 흰탭 판정
     stuck_sec: float = 3.0             # 좌표 3초 고정 → stuck
     dead_reckon_sec: float = 2.0       # 좌표 유실 → dead reckon 허용 시간
+    # NavBrain 경로학습 모드: off|shadow|on (경로 딥러닝 학습.md).
+    # shadow=제안을 [NAV-SHADOW] 로그만(키 출력 무영향, 실측 대조용).
+    # on 은 리플레이 평가 + shadow 실측 검증 후에만. env OB_NAV_MODE 우선.
+    nav_mode: str = "shadow"
 
 
 @dataclass

@@ -4,7 +4,12 @@
 _route_optimize.py(오프라인 분석)의 A* 를 런타임용으로 압축. healer_worker 가
 STUCK 시 현재→목표(격수/포탈) 경로의 첫 방향을 받아 최적 우회.
 
-좌표축(사용자 확정 2026-06-13): R=x+, L=x-, U=y+, D=y-. x·y 는 0 포함 자연수.
+좌표축(실측 정정 2026-07-05, 메모리 project_coord_axis_ud): R=x+, L=x-,
+**D=y+(아래), U=y-(위)**. x·y 는 0 포함 자연수.
+🔴 옛 주석 "U=y+ (2026-06-13 확정)" 은 사용자 멘탈모델이었고 실측(2026-06-15,
+STUCK-ALIGN v90/_PEER_DXY v94 수정 근거)과 반대라 blocked 간선 방향이
+뒤집혀 해석되는 버그였음. dormant(호출부 0)라 무사고였을 뿐. NavBrain 연결
+전 nav_features.DELTA 단일 정본으로 통일.
 - walk: {"x,y": walk횟수} (검증된 통행 칸. 격수·힐러가 밟은 곳).
 - blocked: {"x,y": {DIR: ..}} (STUCK 학습 벽 — 그 칸의 그 방향 간선 차단).
 - avoid: set((x,y)) (peers = 다른 캐릭 현재 칸. 겹칠 수 없어 일시 장애물).
@@ -13,7 +18,7 @@ from __future__ import annotations
 
 import heapq
 
-DELTA = {"L": (-1, 0), "R": (1, 0), "U": (0, 1), "D": (0, -1)}
+DELTA = {"L": (-1, 0), "R": (1, 0), "U": (0, -1), "D": (0, 1)}
 MAX_GAP = 3  # 좌표 OCR 누락 보간: 같은 축 이 거리 내 walk칸 연결.
 
 

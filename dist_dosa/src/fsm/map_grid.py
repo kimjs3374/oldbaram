@@ -54,6 +54,9 @@ class MapGrid:
     def __init__(self, root):
         self.root = pathlib.Path(root)
         self._maps: dict[str, dict] = {}
+        # 데이터 버전 — 관측이 추가될 때마다 증가. NavBrain flow field 캐시
+        # 무효화 키 (세션 중 온라인 학습 반영).
+        self._ver = 0
 
     # --- 내부 ---
     @staticmethod
@@ -103,6 +106,7 @@ class MapGrid:
         if tab:
             c["tab"] += 1
         s["dirty"] = True
+        self._ver += 1
 
     def add_blocked(self, name: str, x: int, y: int, d: str) -> None:
         if d not in ("L", "R", "U", "D"):
@@ -112,6 +116,7 @@ class MapGrid:
             return
         s["blocked"][f"{x},{y}"][d] += 1
         s["dirty"] = True
+        self._ver += 1
 
     def add_attempt(self, name: str, x: int, y: int, d: str,
                     passed: bool) -> None:
@@ -130,6 +135,7 @@ class MapGrid:
         if not passed:
             a["block"] += 1
         s["dirty"] = True
+        self._ver += 1
 
     def import_bundle(self, bundle: dict) -> None:
         """클라우드/타 PC 묶음({맵명:{cells,blocked,...}})을 카운트 합산.
@@ -158,6 +164,19 @@ class MapGrid:
                         cur["try"] += int(tb.get("try", 0))
                         cur["block"] += int(tb.get("block", 0))
             s["dirty"] = True
+            self._ver += 1
+
+    def version(self) -> int:
+        """관측 누적 버전 (NavBrain 캐시 무효화용)."""
+        return self._ver
+
+    def slot(self, name):
+        """맵 슬롯 읽기 조회 (NavBrain 용, **읽기 전용으로만 쓸 것**).
+
+        디스크 lazy-load 포함. 맵명 무효면 None.
+        """
+        _, s = self._slot(name)
+        return s
 
     def is_wall(self, name, x, y, d, block_rate: float = 0.7,
                 min_try: int = 3) -> bool:

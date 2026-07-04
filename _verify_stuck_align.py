@@ -28,9 +28,16 @@ def mk_self(hx, hy, want, dur):
         _run_want=want, _run_start_ts=time.time() - dur,
         _run_start_pos=(hx, hy), _whitetab_confirm=0,
         _stuck_last_log=0.0,
-        log=SimpleNamespace(warning=lambda *a, **k: None),
+        log=SimpleNamespace(warning=lambda *a, **k: None,
+                            info=lambda *a, **k: None),
         _blacklist_remove_at=lambda *a, **k: None,
         _blacklist_add=lambda *a, **k: None,
+        # v144 PEER-WAIT: 클래스 속성/메서드 — mock 에 명시 주입.
+        _PEER_DXY=HealerWorker._PEER_DXY,
+        _parse_peers=lambda atk: set(),
+        # 2026-07-05 NavBrain: off 면 ORTHO 재배열 훅 미발동(기존 동작).
+        _nav_mode="off",
+        _nav_get=lambda fol: None,
     )
 
 

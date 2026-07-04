@@ -504,14 +504,20 @@ class Follower:
                             f"→ MAP-SYNC hold {self._map_sync_duration*1000:.0f}ms"
                         )
             # 맵 grid 수집: 힐러 walk (좌표 변할 때만, OCR 점프는 제외).
-            if prev_hc is None:
-                self._grid.add_walk(map_name, healer_coord[0], healer_coord[1])
-            elif healer_coord != prev_hc:
-                _dj = (abs(healer_coord[0] - prev_hc[0])
-                       + abs(healer_coord[1] - prev_hc[1]))
-                if _dj <= self._healer_coord_jump_threshold:
+            # 2026-07-05: 맵명 구조검증 게이트 추가 — 격수 훅(update L830)과
+            # 동일. 게이트 없이는 OCR 오독('브브로' 등) 파일이 maps/ 에 축적
+            # (maps_cloud 감사에서 오염 파일 다수 실측). 수집만 거르고 맵
+            # 추적/trail 로직은 불변.
+            if self._is_valid_sunbi_map(map_name):
+                if prev_hc is None:
                     self._grid.add_walk(map_name, healer_coord[0],
                                         healer_coord[1])
+                elif healer_coord != prev_hc:
+                    _dj = (abs(healer_coord[0] - prev_hc[0])
+                           + abs(healer_coord[1] - prev_hc[1]))
+                    if _dj <= self._healer_coord_jump_threshold:
+                        self._grid.add_walk(map_name, healer_coord[0],
+                                            healer_coord[1])
             self._healer_last_coord_by_map[map_name] = healer_coord
         if not map_name or map_name == self._healer_map:
             # 같은 맵이면 reversion 카운터 리셋.

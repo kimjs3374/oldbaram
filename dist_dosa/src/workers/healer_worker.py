@@ -214,6 +214,21 @@ class HealerWorker(QtCore.QThread):
         self._run_start_ts: float = 0.0
         self._run_start_pos = None     # (hx, hy) baseline
         self._stuck_last_log: float = 0.0
+        # --- NavBrain 경로학습 (2026-07-05, 경로 딥러닝 학습.md) ---
+        # off|shadow|on. shadow=제안을 [NAV-SHADOW] 로그만(키 출력 무영향,
+        # 실측 대조용). on 은 리플레이 평가+shadow 실측 검증 후에만.
+        # config fsm.nav_mode 기본, env OB_NAV_MODE 우선. lazy init(fol._grid).
+        _nm = "shadow"
+        try:
+            _nm = str(getattr(cfg.fsm, "nav_mode", "shadow") or "shadow")
+        except Exception:
+            pass
+        _nm = os.environ.get("OB_NAV_MODE", _nm).strip().lower()
+        self._nav_mode = _nm if _nm in ("off", "shadow", "on") else "off"
+        self._nav = None
+        self._nav_init_failed = False
+        self._nav_last_log = None      # (want, nav, cell) 변화시만 로그
+        self._nav_log_ts = 0.0
         # 2026-04-23 맵 전환 JUMP GATE: 격수 좌표 급변 → 맵 전환 중 판정
         self._prev_atk_coord = None
         self._map_jump_hold_until: float = 0.0
@@ -3260,7 +3275,85 @@ class HealerWorker(QtCore.QThread):
         # 담당하므로 옆 회피 불필요. 특히 격수 정지 시 옆으로 새다 trail 이탈해
         # 헤매고 거리 멀어지던 것(사용자 실측 효율 10%+ 저하)이 근본 제거됨.
         # 슬롯이 못 잡는 순간 겹침은 STUCK-HOLD/RESET 이 처리.
-        return self._apply_stuck_filter(want, reason, atk, fol, map_neq)
+        want, reason = self._apply_stuck_filter(want, reason, atk, fol,
+                                                map_neq)
+        # NavBrain shadow: 최종 want 확정 후 제안 대조 로그만 (키 출력 무영향).
+        if self._nav_mode != "off":
+            self._nav_shadow(want, atk, fol, map_neq)
+        return want, reason
+
+    def _nav_get(self, fol):
+        """NavBrain lazy 초기화 (fol._grid 필요). 실패 시 영구 기권."""
+        if self._nav_mode == "off" or self._nav_init_failed:
+            return None
+        if self._nav is None:
+            try:
+                from ..fsm.nav_brain import NavBrain
+                g = getattr(fol, "_grid", None)
+                if g is None:
+                    return None
+                self._nav = NavBrain(g, log=self.log)
+                self.log.info(
+                    f"[NAV-INIT] mode={self._nav_mode} "
+                    f"net={self._nav.ready_net()}")
+            except Exception as e:
+                self._nav_init_failed = True
+                self.log.warning(f"[NAV-INIT] 실패 → 기권 유지: {e}")
+                return None
+        return self._nav
+
+    def _nav_shadow(self, want, atk, fol, map_neq: bool) -> None:
+        """shadow 모드: NavBrain 제안을 로그만 — 실측 want 와 오프라인 대조용.
+
+        맵전환 오염 창(MAP-JUMP/FORCE-EXIT/TAB-CONFIRM/흰탭)에선 대조 무의미
+        + 입력 오염이라 스킵 (경로 딥러닝 학습.md §6.3).
+        """
+        try:
+            nav = self._nav_get(fol)
+            if nav is None:
+                return
+            h = self.healer_coord
+            if h is None or getattr(self, "_whitetab_confirm", 0) >= 1:
+                return
+            now = time.time()
+            if now < getattr(self, "_map_jump_hold_until", 0.0):
+                return
+            if getattr(fol, "_tab_confirm_active", False):
+                return
+            try:
+                if fol.force_exit_active():
+                    return
+            except Exception:
+                pass
+            if map_neq:
+                try:
+                    goal = fol.exit_coord()
+                except Exception:
+                    goal = None
+                ctx = "MAPNEQ"
+            elif bool(atk.coord_valid):
+                goal = (atk.x, atk.y)
+                ctx = "B3"
+            else:
+                return
+            if goal is None:
+                return
+            nd, conf, src = nav.suggest(self.healer_map, h, goal,
+                                        last_dir=want if want else "-",
+                                        hold=False, purpose="shadow")
+            key = (want, nd, h)
+            if now - self._nav_log_ts < 0.3 or (
+                    key == self._nav_last_log
+                    and now - self._nav_log_ts < 1.0):
+                return
+            self._nav_last_log = key
+            self._nav_log_ts = now
+            self.log.info(
+                f"[NAV-SHADOW] want={want} nav={nd or '-'} conf={conf:.2f} "
+                f"src={src} goal={goal} ctx={ctx} h={h} "
+                f"map={self.healer_map!r}")
+        except Exception:
+            pass
 
 
     def _blacklist_add(self, map_name: str, coord, direction: str) -> None:
@@ -3545,6 +3638,21 @@ class HealerWorker(QtCore.QThread):
             else:
                 ortho1 = "R"
             ortho2 = "L" if ortho1 == "R" else "R"
+        # 2026-07-05 NavBrain(on): 언스턱 직교 1차/2차 재배열 — 학습 flow 비용
+        # 낮은 쪽 먼저. 후보 집합(ortho1/ortho2) 밖 제안은 무시(안전 한정).
+        # 기권이면 기존 부호 휴리스틱 그대로 (경로 딥러닝 학습.md §6.2-2).
+        if self._nav_mode == "on":
+            _nv = self._nav_get(fol)
+            _ng = _exy if _exy is not None else (
+                (atk.x, atk.y) if a_valid else None)
+            if _nv is not None and _ng is not None:
+                _nu = _nv.unstick_dir(self.healer_map, h, want, _ng)
+                if _nu == ortho2:
+                    ortho1, ortho2 = ortho2, ortho1
+                    if now - self._stuck_last_log >= 0.5:
+                        self.log.info(
+                            f"[NAV-ORTHO] 우회 재배열 {ortho2}→{ortho1} "
+                            f"(flow) h={h} blocked={want}")
         if now - self._stuck_last_log >= 0.5:
             self._stuck_last_log = now
             self.log.warning(
@@ -3772,6 +3880,21 @@ class HealerWorker(QtCore.QThread):
             # end_reached 시엔 아래 기본 분기(exit_dir 계속 밀기)로 통과시킴.
             src = "exit_dir"
             w = ed if ed in ("L", "R", "U", "D") else None
+            # 2026-07-05 NavBrain(on): exit_dir 부재 시 학습 flow 로 출구좌표
+            # 접근을 폴백 2순위로 (기권 시 기존 체인 계속, §6.2-4). exit_dir
+            # 자체(선비족 고정테이블 포함)는 대체 금지 — 부재시에만.
+            if w is None and self._nav_mode == "on" and h is not None:
+                _nv = self._nav_get(fol)
+                try:
+                    _exc = fol.exit_coord()
+                except Exception:
+                    _exc = None
+                if _nv is not None and _exc is not None:
+                    _nd, _nc, _ns = _nv.suggest(
+                        self.healer_map, h, _exc, last_dir="-",
+                        purpose="b2nav")
+                    if _nd in ("L", "R", "U", "D"):
+                        w, src = _nd, f"nav({_ns})"
             if w is None:
                 fd = fol.direction()
                 if fd in ("L", "R", "U", "D"):
@@ -3888,6 +4011,21 @@ class HealerWorker(QtCore.QThread):
                         else:
                             _w = "D" if _dy > 0 else "U"
                         return _w, f"B3T:TRAIL→{(_wx,_wy)} d=({_dx},{_dy})"
+                # 2026-07-05 NavBrain(on): trail 이 없을 때만 학습 flow 로 추종.
+                # 이 구간은 기존이 맹목 직선(B3)뿐이라 '더 나쁠 수 없는' 유일
+                # 지점. 기권(None/저신뢰)이면 기존 직선 그대로 (경로 딥러닝
+                # 학습.md §6.2-1). trail 있으면 위에서 이미 반환 = trail 우선
+                # 불변(v113 교훈).
+                if _twp is None and self._nav_mode == "on":
+                    _nv = self._nav_get(fol)
+                    if _nv is not None:
+                        _nd, _nc, _ns = _nv.suggest(
+                            self.healer_map, h, (atk.x, atk.y),
+                            last_dir=self._run_want or "-", purpose="b3n")
+                        if _nd in ("L", "R", "U", "D") and _nc >= 0.55:
+                            return _nd, (
+                                f"B3N:NAV→({atk.x},{atk.y}) "
+                                f"conf={_nc:.2f} src={_ns}")
         # 2026-04-23 추종 거리 정책화: atk_dir 복제 대신 "격수 뒤 N칸" 가상
         # 타겟으로 이동. atk_dir 복제는 힐러가 격수와 동일/앞 좌표에서도 같은
         # 방향으로 전진해 앞지름 → 몹 어그로 끌기 (힐러1.txt 10:29:05 재현).
@@ -3968,6 +4106,23 @@ class HealerWorker(QtCore.QThread):
                         first, second = second, first
                         self._b3_primary_axis = ("x" if first == x_dir
                                                  else "y")
+                except Exception:
+                    pass
+            # 2026-07-05 NavBrain(on): 축 선택 보강 — is_wall 이진 대신 학습
+            # flow 가 second 축을 고신뢰로 선호하면 교체. 후보가 두 축뿐이라
+            # 실패해도 기존 STUCK 체인이 잡음 (경로 딥러닝 학습.md §6.2-3).
+            if first and second and self._nav_mode == "on":
+                try:
+                    _nv = self._nav_get(fol)
+                    if _nv is not None:
+                        _nd, _nc, _ns = _nv.suggest(
+                            self.healer_map, h, (tx, ty),
+                            last_dir=self._run_want or "-",
+                            purpose="b3axis")
+                        if _nd == second and _nc >= 0.7:
+                            first, second = second, first
+                            self._b3_primary_axis = (
+                                "x" if first == x_dir else "y")
                 except Exception:
                     pass
             reverse_map = {"L": "R", "R": "L", "U": "D", "D": "U"}
