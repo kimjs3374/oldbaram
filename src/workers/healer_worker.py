@@ -3503,6 +3503,19 @@ class HealerWorker(QtCore.QThread):
                     f"atk=({atk.x},{atk.y}) dur={dur:.1f}s")
             return "-", (f"STUCK-HOLD 격수정렬+{want}막힘 대기 "
                          f"h={h} atk=({atk.x},{atk.y})")
+        # 2026-07-05 사용자: 막힌 앞칸이 봇(도사/쩔캐 peers)이면 회피기동(ORTHO)
+        # 금지 → 대기. 봇은 곧 비키거나 같이 이동하므로 옆으로 새면 대열만
+        # 흩뜨림. peers 는 IP 자동 idx 로 판별(다른 봇 좌표 집합).
+        if h is not None and want in self._PEER_DXY:
+            _peers = self._parse_peers(atk)
+            if _peers:
+                _pdx, _pdy = self._PEER_DXY[want]
+                if (h[0] + _pdx, h[1] + _pdy) in _peers:
+                    if now - self._stuck_last_log >= 0.5:
+                        self._stuck_last_log = now
+                        self.log.warning(
+                            f"[PEER-WAIT] {want}막힘 앞 봇 → 우회금지 대기 h={h}")
+                    return "-", f"PEER-WAIT {want}막힘 앞 봇 → 우회 금지 대기"
         # 2026-06-16: 맵전환 중(map_neq)엔 격수가 이미 다음 맵에 있어 atk 좌표로
         # 우회축을 정하면 출구 반대로 처박힘. (7)→로비 출구(6,0)는 위인데 격수가
         # 로비 좌표(25,7)라 "아래"로 판단→D 우회→출구 정반대로 내려감(163713 로그

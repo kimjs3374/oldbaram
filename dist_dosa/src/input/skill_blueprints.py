@@ -341,13 +341,17 @@ def default_skills(parlyuk_offset_sec: float = 0.0,
         edge_only=False,
     ))
 
-    # 파력무참: buff OCR 에서 "파력무참" 관측될 때까지 재시전. 백호의희원 방식.
-    # 2026-04-22 사용자 요청: retry_until_ready=True. predicate 는 buff 부재시만
-    # ready → 시전 성공(버프 뜸) 후 predicate False 로 차단. 버프 만료되면 다시
-    # 부재 → 재진입. cooldown_sec=5 는 verify GIVEUP 시 backoff (백호 방식).
+    # 파력무참: buff OCR "파력무참" 으로 시전 검증. 실제 쿨 180s.
+    # 2026-07-05 사용자: 시전 확인(verify buff 성공)되면 다음 시전(쿨 180s)까지
+    # 재시전/재verify 안 함. 기존 cooldown_sec=5 라 버프(42s) 만료 후 쿨(180s)이
+    # 남았는데 predicate(버프 부재) 재진입 → 재시전 시도(burst 2s 이동정지) →
+    # 게임 쿨이라 안 나감 → verify 실패 → retry 반복(힐러 자꾸 멈춤). cooldown_sec
+    # =180 으로 시전 성공 후 last_cast 기준 180s 재진입 차단(버프 만료해도 ready
+    # False). retry_until_ready 유지 — verify 실패(진짜 미시전, last_cast 미기록)
+    # 시엔 last_cast==0 이라 즉시 재시도(안정성 보존).
     skills.append(SkillSpec(
         "파력무참", int(vk_map.get("파력무참", _VK_NUMPAD8)),
-        5.0, lambda c: (not _buff_present(c, "파력무참")
+        180.0, lambda c: (not _buff_present(c, "파력무참")
                         and _parlyuk_map_ok(c, parlyuk_maps_getter)
                         and _parlyuk_approach_ok(c, parlyuk_maps_getter)
                         and not c.get("jjeol_jipok_ready", False)),
