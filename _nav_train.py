@@ -12,8 +12,8 @@
 
 자체검증/오버라이드:
     --data DIR      데이터 폴더 (기본 nav_dataset)
-    --out-dir DIR   onnx 출력 오버라이드 (기본: 양트리 src/fsm — 자체검증 시
-                    scratchpad 지정, 진짜 산출 경로 오염 금지). env NAV_OUT_DIR 동일.
+    --out-dir DIR   onnx 출력 (기본: nav_dataset/staging — 게이트 통과 전
+                    실모델 미오염. 승격/배포는 _nav_auto.bat). env NAV_OUT_DIR 동일.
     --epochs/--batch/--log  자체검증용 축소 실행.
 """
 import argparse
@@ -134,7 +134,12 @@ def _evaluate(net, loader, dev):
 def main():
     ap = argparse.ArgumentParser(description="NavNet 학습 + ONNX export")
     ap.add_argument("--data", default=str(ROOT / "nav_dataset"))
-    ap.add_argument("--out-dir", default=os.environ.get("NAV_OUT_DIR") or None,
+    # 2026-07-05 자동학습: 기본 출력 = staging (게이트 통과 전 실모델 오염 금지.
+    # 이전엔 학습이 검증 전에 양트리 실모델을 덮어쓰는 결함이 있었음).
+    # 게이트 PASS 후 승격/배포는 _nav_auto.bat 이 수행.
+    ap.add_argument("--out-dir",
+                    default=os.environ.get("NAV_OUT_DIR")
+                    or str(ROOT / "nav_dataset" / "staging"),
                     help="onnx 출력 오버라이드 (자체검증용 — 미지정 시 양트리 src/fsm)")
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--batch", type=int, default=512)

@@ -428,6 +428,9 @@ def main():
     ap.add_argument("--report", default=str(ROOT / "nav_eval_report.txt"))
     ap.add_argument("--maps", default=str(ROOT / "maps_cloud"))
     ap.add_argument("--logs", default=str(ROOT / "logs_cloud"))
+    # staging 모델 평가용 (자동학습: 게이트 통과 전 실모델 미교체).
+    ap.add_argument("--model-dir", default=None,
+                    help="nav_full 모델 폴더 (기본: dist_dosa/src/fsm 배포본)")
     args = ap.parse_args()
 
     t0 = time.time()
@@ -442,7 +445,8 @@ def main():
     # nav_full: 기본(nav_policy.onnx 있으면 자동 로드). nav_graph: 빈 임시폴더
     # model_dir → 모델 파일 부재 = 그래프 단독 (nav_brain 폴백 관례).
     empty_dir = tempfile.mkdtemp(prefix="nav_eval_graph_only_")
-    nav_full = NavBrain(grid)
+    nav_full = (NavBrain(grid, model_dir=args.model_dir)
+                if args.model_dir else NavBrain(grid))
     nav_graph = NavBrain(grid, model_dir=empty_dir)
     graph_only = not nav_full.ready_net()
 
