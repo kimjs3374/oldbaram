@@ -5,4 +5,4 @@
 - 증분 자동업데이트의 파일 버전(releases.version, .version 파일)은 정수 카운터로
   별도 관리(net/updater.py). 둘은 목적이 다르다(표시/강제 vs 증분 다운로드).
 """
-BUILD_VERSION = "0.1.14"
+BUILD_VERSION = "0.1.15"

@@ -55,9 +55,9 @@ def _clear_auth() -> None:
 
 
 class _LoginDialog(QtWidgets.QDialog):
-    def __init__(self, last_username: str = ""):
+    def __init__(self, last_username: str = "", build_version: str = ""):
         super().__init__()
-        self.setWindowTitle("옛바 로그인")
+        self.setWindowTitle(f"옛바 로그인  (v{build_version})")
         self.setModal(True)
         lay = QtWidgets.QFormLayout(self)
         self.ed_user = QtWidgets.QLineEdit(last_username)
@@ -79,6 +79,11 @@ class _LoginDialog(QtWidgets.QDialog):
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
         lay.addRow(btns)
+        # 실제 exe 코드 버전 표시 — .version(런처 기록)이 거짓말해도 진짜 버전
+        # 확인용(2026-07-05 사용자 요청). 미반영이면 여기 옛 버전이 뜬다.
+        _ver = QtWidgets.QLabel(f"실행 버전: v{build_version}")
+        _ver.setStyleSheet("color:#888; font-size:11px;")
+        lay.addRow(_ver)
         if last_username:
             self.ed_pw.setFocus()
         else:
@@ -126,7 +131,7 @@ def run_login_gate(build_version: str):
             pass  # 오프라인이면 아래 수동 로그인에서도 실패 → 차단
 
     # 3) 로그인 다이얼로그 루프
-    dlg = _LoginDialog(saved.get("username", ""))
+    dlg = _LoginDialog(saved.get("username", ""), build_version)
     while True:
         if dlg.exec_() != QtWidgets.QDialog.Accepted:
             return None  # 종료 버튼/창 닫기 → 앱 미실행
