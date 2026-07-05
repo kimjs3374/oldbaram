@@ -3376,7 +3376,8 @@ class HealerWorker(QtCore.QThread):
                 return
             nd, conf, src = nav.suggest(self.healer_map, h, goal,
                                         last_dir=want if want else "-",
-                                        hold=False, purpose="shadow")
+                                        hold=False, purpose="shadow",
+                                        avoid=self._parse_peers(atk))
             key = (want, nd, h)
             if now - self._nav_log_ts < 0.3 or (
                     key == self._nav_last_log
@@ -3478,8 +3479,19 @@ class HealerWorker(QtCore.QThread):
         # h=(2,10) U 30초 박힘, 맵도 못 따라감).
         # FORCE-EXIT 기간엔 decide_move_raw 자체가 exit_dir 우선 반환하므로
         # 여기까지 오지 않음. 안전.
+        # 2026-07-05 P3: 빨탭 재고정(_reanchor_active)/TAB-CONFIRM/post-tab 정착
+        # 중엔 STUCK 판정 억제. 격수에게 복귀하느라 잠깐 막힌 걸 벽으로 오판해
+        # 삥삥 도는 것(실측: 재고정 완료후 6초내 STUCK 56~65%) 차단 — 흰탭과
+        # 동급 게이트. run-state 리셋해 복귀 완료 후 새로 계측(§6.3 게이트 아래).
+        _nav_settle = (getattr(self, "_reanchor_active", False)
+                       or getattr(fol, "_tab_confirm_active", False))
+        try:
+            _nav_settle = _nav_settle or fol.post_tab_grace_active(now)
+        except Exception:
+            pass
         if h is None or want not in ("L", "R", "U", "D") \
-                or getattr(self, "_whitetab_confirm", 0) >= 1:
+                or getattr(self, "_whitetab_confirm", 0) >= 1 \
+                or _nav_settle:
             self._run_want = None
             self._run_start_ts = 0.0
             self._run_start_pos = None
@@ -3640,6 +3652,12 @@ class HealerWorker(QtCore.QThread):
             if _peers:
                 _pdx, _pdy = self._PEER_DXY[want]
                 if (h[0] + _pdx, h[1] + _pdy) in _peers:
+                    # 2026-07-05 P2: 앞칸이 봇이면 인내대기 — STUCK 시계를 리셋해
+                    # RESET/note_blocked(가짜벽) 로 절대 승격 안 되게. 봇은 곧
+                    # 비키거나 같이 이동(격수 추종)하므로 벽이 아님. 옆걸음 금지
+                    # 유지(2026-06-30 롤백 존중). 격수 이동 시 want 갱신돼 해제.
+                    self._run_start_ts = now
+                    self._run_start_pos = h
                     if now - self._stuck_last_log >= 0.5:
                         self._stuck_last_log = now
                         self.log.warning(
@@ -3682,7 +3700,8 @@ class HealerWorker(QtCore.QThread):
             _ng = _exy if _exy is not None else (
                 (atk.x, atk.y) if a_valid else None)
             if _nv is not None and _ng is not None:
-                _nu = _nv.unstick_dir(self.healer_map, h, want, _ng)
+                _nu = _nv.unstick_dir(self.healer_map, h, want, _ng,
+                                      avoid=self._parse_peers(atk))
                 if _nu == ortho2:
                     ortho1, ortho2 = ortho2, ortho1
                     if now - self._stuck_last_log >= 0.5:
@@ -3710,17 +3729,43 @@ class HealerWorker(QtCore.QThread):
         # 3.5s 초과 → release + 상태 리셋 + blacklist 등록.
         # 다음 B3 결정 시 해당 방향 회피 → 같은 벽 무한 재시도 방지.
         self._blacklist_add(self.healer_map, h, want)
-        # 맵 grid 영구 누적: STUCK 확정 벽(좌표+방향). blacklist=휘발 TTL, grid=영구.
-        try:
-            fol.note_blocked(self.healer_map, h[0], h[1], want)
-        except Exception:
-            pass
+        # 2026-07-05 P1: 영구 벽 학습(note_blocked→grid.add_blocked)은 '진짜 벽'
+        # 일 때만. 벽이 아닌데 3.5s 막힌 케이스는 가짜벽 오염 → 사용자 '장애물
+        # 학습' 목표를 역효과내게 함(실측: BL-ADD 상당수가 격수와 멀리 뒤처지거나
+        # 봇에 막힌 지점). 휘발 blacklist(TTL)만 남겨 즉시 재시도만 피하고 영구
+        # 누적은 생략. 진짜 벽은 격수 막힘률(attempts, 격수 실제 키)이 더 신뢰.
+        #   ① 재고정 중(_reanchor_active): 복귀 특수기동이라 벽 아님
+        #   ② 앞칸/인접이 봇(peers): 봇충돌이지 벽 아님
+        #   ③ 격수와 추종축으로 멀리(>3칸) 뒤처짐: 못 따라간 것이지 벽 아님
+        _fake_wall = getattr(self, "_reanchor_active", False)
+        if not _fake_wall:
+            try:
+                _pset = self._parse_peers(atk)
+                if _pset:
+                    _pd = self._PEER_DXY.get(want, (0, 0))
+                    if ((h[0] + _pd[0], h[1] + _pd[1]) in _pset
+                            or any(abs(px - h[0]) + abs(py - h[1]) <= 1
+                                   for (px, py) in _pset)):
+                        _fake_wall = True
+            except Exception:
+                pass
+        if not _fake_wall and a_valid:
+            _fd = abs(atk.y - hy) if want in ("U", "D") else abs(atk.x - hx)
+            if _fd > 3:
+                _fake_wall = True
+        if not _fake_wall:
+            # 맵 grid 영구 누적: STUCK 확정 벽(좌표+방향). blacklist=휘발, grid=영구.
+            try:
+                fol.note_blocked(self.healer_map, h[0], h[1], want)
+            except Exception:
+                pass
         self._run_want = None
         self._run_start_ts = 0.0
         self._run_start_pos = None
         return "-", (
-            f"STUCK-RESET dur={dur:.1f}s h={h} blocked={want} "
-            f"→ BL-ADD map={self.healer_map!r} ttl={self._bl_ttl_sec:.0f}s"
+            f"STUCK-RESET dur={dur:.1f}s h={h} blocked={want} → "
+            f"{'BL-SKIP(가짜벽)' if _fake_wall else 'BL-ADD'} "
+            f"map={self.healer_map!r} ttl={self._bl_ttl_sec:.0f}s"
         )
 
     def _decide_move_raw(self, atk, fol, map_neq: bool) -> tuple:
@@ -3935,7 +3980,7 @@ class HealerWorker(QtCore.QThread):
                 if _nv is not None and _exc is not None:
                     _nd, _nc, _ns = _nv.suggest(
                         self.healer_map, h, _exc, last_dir="-",
-                        purpose="b2nav")
+                        purpose="b2nav", avoid=self._parse_peers(atk))
                     if _nd in ("L", "R", "U", "D"):
                         w, src = _nd, f"nav({_ns})"
             if w is None:
@@ -4064,7 +4109,8 @@ class HealerWorker(QtCore.QThread):
                     if _nv is not None:
                         _nd, _nc, _ns = _nv.suggest(
                             self.healer_map, h, (atk.x, atk.y),
-                            last_dir=self._run_want or "-", purpose="b3n")
+                            last_dir=self._run_want or "-", purpose="b3n",
+                            avoid=self._parse_peers(atk))
                         if _nd in ("L", "R", "U", "D") and _nc >= 0.55:
                             return _nd, (
                                 f"B3N:NAV→({atk.x},{atk.y}) "
@@ -4161,7 +4207,7 @@ class HealerWorker(QtCore.QThread):
                         _nd, _nc, _ns = _nv.suggest(
                             self.healer_map, h, (tx, ty),
                             last_dir=self._run_want or "-",
-                            purpose="b3axis")
+                            purpose="b3axis", avoid=self._parse_peers(atk))
                         if _nd == second and _nc >= 0.7:
                             first, second = second, first
                             self._b3_primary_axis = (
