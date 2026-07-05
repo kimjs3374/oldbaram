@@ -3292,9 +3292,53 @@ class HealerWorker(QtCore.QThread):
                                                 map_neq)
         # 2026-07-05 사용자: 격수보다 '절대' 앞서나가지 말 것 — 전역 클램프.
         want, reason = self._clamp_overtake(want, reason, atk, map_neq)
+        # 2026-07-05 사용자: 빨탭 확실히 처리하고 다음맵 넘어갈 것 — 크로싱 게이트.
+        want, reason = self._redtab_cross_gate(want, reason, fol, map_neq)
         # NavBrain shadow: 최종 want 확정 후 제안 대조 로그만 (키 출력 무영향).
         if self._nav_mode != "off":
             self._nav_shadow(want, atk, fol, map_neq)
+        return want, reason
+
+    def _redtab_cross_gate(self, want, reason, fol, map_neq: bool) -> tuple:
+        """빨탭 확정 전엔 포탈 크로싱 금지 — FORCE-EXIT 내부 게이트 밖(B2:MAPNEQ,
+        OCR지연 B3T 잔여 등)의 크로싱도 커버. 출구좌표 ≤2 + 출구방향 이동인데
+        본인 빨탭(red&!white) 미확정이면 보류. 쩔(follow_only)은 빨탭 안 써 면제.
+        크로싱 맥락(map_neq 또는 force_exit)에서만 → 같은맵 사냥 오발 방지.
+        """
+        try:
+            if want not in ("L", "R", "U", "D") or self.follow_only:
+                return want, reason
+            _fe = False
+            try:
+                _fe = fol.force_exit_active()
+            except Exception:
+                _fe = False
+            if not (map_neq or _fe):
+                return want, reason
+            if self._cur_red_raw and not self._cur_white_raw:
+                return want, reason  # 빨탭 확정 → 통과
+            h = self.healer_coord
+            try:
+                exc = fol.exit_coord()
+            except Exception:
+                exc = None
+            try:
+                exd = fol.exit_dir()
+            except Exception:
+                exd = None
+            if h is not None and exc is not None and exd == want \
+                    and abs(h[0] - exc[0]) + abs(h[1] - exc[1]) <= 2:
+                _nw = time.time()
+                if _nw - getattr(self, "_portal_gate_log_ts", 0.0) > 0.5:
+                    self._portal_gate_log_ts = _nw
+                    self.log.info(
+                        f"[PORTAL-GATE] 빨탭 미확정 → 크로싱 보류 "
+                        f"h={h} exit={exc} exit_dir={exd!r} "
+                        f"red={self._cur_red_raw} white={self._cur_white_raw}")
+                return "-", (f"PORTAL-GATE 빨탭 미확정 크로싱 보류 "
+                             f"h={h} exit={exc}")
+        except Exception:
+            pass
         return want, reason
 
     def _clamp_overtake(self, want, reason, atk, map_neq: bool) -> tuple:
@@ -4120,13 +4164,17 @@ class HealerWorker(QtCore.QThread):
         # 박힘→STUCK" 반복. 격수가 검증한 trail 이 더 안전. 직선 지름길 재시도 금지.
         if h is not None and a_valid:
             _hx, _hy = h
-            # 2026-07-01 슬롯 롤백(사용자): order 변동/우회로 오히려 악화 →
-            # 기존 방식 복원 = 격수 발자국(trail) 그대로 끝까지 추종 + 회피 없이
-            # (_avoid_peer_collision 는 _decide_move 에서 이미 제거된 채 유지).
+            # 2026-07-01 슬롯 롤백(사용자): order 변동/우회로 악화 → 끝까지 추종.
+            # 2026-07-05 사용자 재요구('격수보다 절대 앞서지 말것'): 앞지름 방지
+            # stop_before=1 재도입 — 단 롤백 원인이던 _slot_order(봇별 가변
+            # offset→order 진동)는 안 쓰고 균일 1칸(옆걸음도 없음)이라 그 악화
+            # 재발 안 함. 효과: ①격수 발자국 끝(격수 위치)에서 1칸 뒤에 정지 =
+            # 절대 앞지르지 않음 ②포탈도 trail로 안 건너고(끝 1칸전 정지) FORCE-
+            # EXIT(빨탭 게이트)로만 넘어감 = 빨탭 미확정 크로싱 원천차단.
             # 격수 2칸 초과면 발자국 따라, 근접은 아래 B3.
             if abs(atk.x - _hx) + abs(atk.y - _hy) > 1:
                 _twp = fol.next_waypoint(self.healer_map, h, tol=1,
-                                         exit_dash=False)
+                                         exit_dash=False, stop_before=1)
                 if _twp is not None:
                     (_wx, _wy), _ = _twp
                     _dx, _dy = _wx - _hx, _wy - _hy
