@@ -97,6 +97,11 @@ def main() -> None:
                     help="배포 semver(미지정 시 src/version.py BUILD_VERSION)")
     ap.add_argument("--changelog", default="")
     ap.add_argument("--dry-run", action="store_true")
+    # 2026-07-05 사고 수정: 존재-스킵(재개)은 명시 요청시에만.
+    ap.add_argument("--resume", action="store_true",
+                    help="중단된 첫 배포 재개: storage 에 이미 있는 파일 스킵")
+    ap.add_argument("--force", action="store_true",
+                    help="직전 manifest 무시하고 전 파일 강제 업로드 (복구용)")
     args = ap.parse_args()
 
     if not DIST.is_dir():
@@ -111,18 +116,31 @@ def main() -> None:
     url, key, bucket = adm["url"], adm["key"], adm["bucket"]
     H = {"apikey": key, "Authorization": f"Bearer {key}"}
 
-    # 직전 최신 dist_manifest (증분 기준)
+    # 직전 dist_manifest (증분 기준) — 🔴2026-07-05 사고 수정: releases 는
+    # .py 채널(cloud_uploader, dist_manifest=[])과 공유 테이블이라 "최신 1행"
+    # 만 보면 직전이 .py 행일 때 prev={} → 첫 배포 오판 → 존재-스킵으로
+    # 전 파일 미업로드 + manifest 만 새 sha 기록 (v143/v147/v149 실사고:
+    # storage exe 구버전 잔존 → 전 PC 0.1.16 미반영). dist_manifest 가
+    # 비어있지 않은 최신 행을 찾는다.
     r = _S.get(
         f"{url}/rest/v1/releases",
         headers=H,
         params={"select": "version,dist_manifest",
-                "order": "version.desc", "limit": "1"},
+                "order": "version.desc", "limit": "20"},
         timeout=_TIMEOUT)
     r.raise_for_status()
     rows = r.json()
     prev_ver = int(rows[0]["version"]) if rows else 0
-    prev = ({e["path"]: e["sha256"] for e in (rows[0].get("dist_manifest") or [])}
-            if rows else {})
+    prev = {}
+    for row in rows:
+        dm = row.get("dist_manifest") or []
+        if dm:
+            prev = {e["path"]: e["sha256"] for e in dm}
+            print(f"증분 기준: v{row['version']} (dist_manifest {len(dm)}개)")
+            break
+    if args.force:
+        prev = {}
+        print("--force: 직전 manifest 무시, 전 파일 업로드")
 
     files = collect()
     manifest, changed = [], []
@@ -147,11 +165,16 @@ def main() -> None:
         print("(dry-run, 업로드 안 함)")
         return
 
-    first_deploy = not prev   # 첫 배포면 중단 재개를 위해 기존 파일 skip 허용
+    # 🔴 존재-스킵(재개)은 --resume 명시시에만. "첫 배포" 자동판정 폐기 —
+    # sha 검증 없는 존재-스킵이 stale storage + 새 manifest 조합(최악)을
+    # 만든 실사고 원인.
+    skipped = 0
     for i, (rel, p, entry) in enumerate(changed, 1):
         n_parts = entry.get("parts")
         if n_parts:
-            if first_deploy and _exists(url, H, f"{bucket}/{PREFIX}/{rel}.part{n_parts-1}"):
+            if args.resume and _exists(
+                    url, H, f"{bucket}/{PREFIX}/{rel}.part{n_parts-1}"):
+                skipped += 1
                 continue
             with open(p, "rb") as f:
                 for idx in range(n_parts):
@@ -159,11 +182,47 @@ def main() -> None:
                     _put(url, H, f"{bucket}/{PREFIX}/{rel}.part{idx}", chunk)
             print(f"[{i}/{len(changed)}] up {rel} ({n_parts}청크)", flush=True)
         else:
-            if first_deploy and _exists(url, H, f"{bucket}/{PREFIX}/{rel}"):
+            if args.resume and _exists(url, H, f"{bucket}/{PREFIX}/{rel}"):
+                skipped += 1
                 continue
             with open(p, "rb") as f:
                 _put(url, H, f"{bucket}/{PREFIX}/{rel}", f)
             print(f"[{i}/{len(changed)}] up {rel}", flush=True)
+    if skipped:
+        print(f"(--resume: 기존 존재 {skipped}개 스킵)")
+
+    # 🔴 업로드 사후 검증 — 통과 전엔 release 행을 절대 쓰지 않는다.
+    # ① 변경 파일 전수: HEAD Content-Length == 로컬 크기 (스킵/부분업로드 탐지)
+    # ② 메인 exe: 바이트 재다운로드 → sha256 완전 대조 (런처가 받는 그대로)
+    print("업로드 검증 중...", flush=True)
+    for rel, p, entry in changed:
+        n_parts = entry.get("parts")
+        if n_parts:
+            continue  # 청크는 재조립 검증 비용 큼 — 크기검증 생략(런처가 sha 검증)
+        try:
+            hv = _S.head(
+                f"{url}/storage/v1/object/public/{bucket}/{PREFIX}/{rel}",
+                headers=H, timeout=30)
+            remote_sz = int(hv.headers.get("Content-Length", -1))
+        except Exception as e:
+            sys.exit(f"[FAIL] 검증 요청 실패 {rel}: {e} — release 기록 안 함")
+        if remote_sz != entry["size"]:
+            sys.exit(f"[FAIL] 크기 불일치 {rel}: storage {remote_sz} != "
+                     f"로컬 {entry['size']} — release 기록 안 함")
+    exe_entry = next((e for e in manifest
+                      if e["path"] == "oldbaram_sunbi_healer.exe"), None)
+    if exe_entry and any(rel == "oldbaram_sunbi_healer.exe"
+                         for rel, _p, _e in changed):
+        rb = _S.get(
+            f"{url}/storage/v1/object/public/{bucket}/{PREFIX}/"
+            f"oldbaram_sunbi_healer.exe", headers=H, timeout=_TIMEOUT)
+        rb.raise_for_status()
+        got = hashlib.sha256(rb.content).hexdigest()
+        if got != exe_entry["sha256"]:
+            sys.exit(f"[FAIL] exe 바이트 불일치: storage {got[:12]} != "
+                     f"로컬 {exe_entry['sha256'][:12]} — release 기록 안 함")
+        print(f"exe 바이트 검증 OK ({got[:12]})")
+    print("업로드 검증 통과")
 
     new_ver = prev_ver + 1
     hr = dict(H)
