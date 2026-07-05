@@ -23,6 +23,9 @@ def collect(mw) -> dict:
         "min_h": mw.minh_spin.value(),
         "tol": mw.tol_spin.value(),
         "yn": mw.yn_spin.value(),
+        # 경로학습(NavBrain) 모드: 0=끔 1=관찰 2=적용 (2026-07-05 GUI 승격)
+        "nav_mode": (mw.nav_combo.currentIndex()
+                     if hasattr(mw, "nav_combo") else 1),
         # Network
         "peers": mw.peers_edit.text(),
         "port": mw.port_spin.value(),
@@ -286,6 +289,13 @@ def load(mw):
     if g("min_h") is not None: mw.minh_spin.setValue(int(g("min_h")))
     if g("tol") is not None: mw.tol_spin.setValue(int(g("tol")))
     if g("yn") is not None: mw.yn_spin.setValue(int(g("yn")))
+    # 경로학습 모드 복원 (시그널 차단 — 로드 중 worker 미존재/저장 루프 방지).
+    if g("nav_mode") is not None and hasattr(mw, "nav_combo"):
+        try:
+            mw.nav_combo.blockSignals(True)
+            mw.nav_combo.setCurrentIndex(max(0, min(2, int(g("nav_mode")))))
+        finally:
+            mw.nav_combo.blockSignals(False)
     # Network — 과거 str(list) 버그 복구 + list 방어. row UI 반영.
     pv = g("peers")
     if pv is not None:

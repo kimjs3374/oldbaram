@@ -3295,6 +3295,22 @@ class HealerWorker(QtCore.QThread):
             self._nav_shadow(want, atk, fol, map_neq)
         return want, reason
 
+    def set_nav_mode(self, mode: str) -> None:
+        """GUI 주입/실행중 변경 (2026-07-05 GUI 승격 — env/yaml 보다 우선).
+
+        off↔shadow↔on 전환은 다음 _decide_move 호출부터 즉시 반영.
+        NavBrain 인스턴스는 유지(off 는 호출만 중단) — 재켜기 무비용.
+        """
+        m = str(mode or "").strip().lower()
+        if m not in ("off", "shadow", "on"):
+            return
+        if m != self._nav_mode:
+            self._nav_mode = m
+            try:
+                self.log.info(f"[NAV-MODE] → {m} (GUI)")
+            except Exception:
+                pass
+
     def _nav_get(self, fol):
         """NavBrain lazy 초기화 (fol._grid 필요). 실패 시 영구 기권."""
         if self._nav_mode == "off" or self._nav_init_failed:

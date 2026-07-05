@@ -462,9 +462,21 @@ class ParamDialog(QtWidgets.QDialog):
         lay.addWidget(QtWidgets.QLabel("YOLO 주기 (매 N프레임)"), 5, 0)
         lay.addWidget(self.yn_spin, 5, 1)
 
+        # 경로학습(NavBrain) 모드 — 2026-07-05 GUI 승격 (yaml 수동편집 제거).
+        # 끔 / 관찰(제안 로그만, 조작 불개입) / 적용(4개 훅 개입).
+        self.nav_combo = QtWidgets.QComboBox()
+        self.nav_combo.addItems(["끔", "관찰 (로그만)", "적용"])
+        self.nav_combo.setCurrentIndex(1)   # 기본 = 관찰(shadow)
+        self.nav_combo.setToolTip(
+            "경로학습(NavBrain): 격수 발자국 학습 기반 경로 두뇌.\n"
+            "관찰=제안을 로그로만 기록(움직임 불변), 적용=trail 없음/"
+            "STUCK 우회 등 4곳만 개입. 실행 중에도 즉시 반영.")
+        lay.addWidget(QtWidgets.QLabel("경로학습 (NavBrain)"), 6, 0)
+        lay.addWidget(self.nav_combo, 6, 1)
+
         self.btn_close = QtWidgets.QPushButton("닫기")
         self.btn_close.clicked.connect(self.hide)
-        lay.addWidget(self.btn_close, 6, 0, 1, 2)
+        lay.addWidget(self.btn_close, 7, 0, 1, 2)
 
 
 class NetworkDialog(QtWidgets.QDialog):

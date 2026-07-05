@@ -101,6 +101,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.minh_spin = self.param_dlg.minh_spin
         self.tol_spin = self.param_dlg.tol_spin
         self.yn_spin = self.param_dlg.yn_spin
+        self.nav_combo = self.param_dlg.nav_combo
         self.peers_edit = self.net_dlg.peers_edit
         self.port_spin = self.net_dlg.port_spin
         self.rate_spin = self.net_dlg.rate_spin
@@ -231,6 +232,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.minh_spin.valueChanged.connect(self._on_minh)
         self.tol_spin.valueChanged.connect(self._on_tol)
         self.yn_spin.valueChanged.connect(self._on_yn)
+        self.nav_combo.currentIndexChanged.connect(self._on_nav_mode)
         # peers 편집 완료 시 격수 모드면 힐러 행 재구성.
         self.peers_edit.editingFinished.connect(self._on_peers_edited)
 
@@ -3035,6 +3037,18 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.worker and hasattr(self.worker, "yolo_every_n"):
             self.worker.yolo_every_n = v
 
+    def _on_nav_mode(self, idx: int):
+        """경로학습(NavBrain) 모드 — 실행 중 즉시 반영 + 저장."""
+        mode = ("off", "shadow", "on")[max(0, min(2, int(idx)))]
+        if self.worker and hasattr(self.worker, "set_nav_mode"):
+            self.worker.set_nav_mode(mode)
+        self._append_log(f"[경로학습] 모드 = "
+                         f"{('끔', '관찰', '적용')[max(0, min(2, int(idx)))]}")
+        try:
+            self._save_settings()
+        except Exception:
+            pass
+
     def _on_skill_toggle(self, name: str):
         on = self.skill_chks[name].isChecked()
         if self.worker and hasattr(self.worker, "set_skill_enabled"):
@@ -4103,6 +4117,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.worker.min_w = self.minw_spin.value()
         self.worker.min_h = self.minh_spin.value()
         self.worker.coord_tol = self.tol_spin.value()
+        # 경로학습(NavBrain) 모드 — GUI 가 env/yaml 보다 우선 (2026-07-05).
+        self.worker.set_nav_mode(
+            ("off", "shadow", "on")[self.nav_combo.currentIndex()])
         self.worker.set_parlyuk_maps(self.parlyuk_maps_edit.text())
         self.worker.yolo_conf = self.conf_slider.value() / 100.0
         self.worker.yolo_every_n = self.yn_spin.value()
