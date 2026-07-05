@@ -16,6 +16,10 @@ echo [2/5] _cloud_maps.py (맵 grid 병합)
 py -3 _cloud_maps.py
 if errorlevel 1 (echo [FAIL] _cloud_maps.py & exit /b 1)
 
+echo [2.5/5] _portal_backfill.py (출구 그래프 백필)
+py -3 _portal_backfill.py
+if errorlevel 1 (echo [FAIL] _portal_backfill.py & exit /b 1)
+
 echo [3/5] _nav_dataset.py (시퀀스 데이터셋 재생성)
 py -3 _nav_dataset.py
 if errorlevel 1 (echo [FAIL] _nav_dataset.py & exit /b 1)

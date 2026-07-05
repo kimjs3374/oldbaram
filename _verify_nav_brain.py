@@ -125,6 +125,23 @@ sc = encode_scalars((5, 5), (10, 5), "R")
 check("스칼라 shape/goal dx", sc.shape == (8,) and abs(sc[0] - 5 / 16) < 1e-6,
       f"sc[0]={sc[0]:.3f}")
 
+# ── 6b. 포탈 통합 (2026-07-05) ─────────────────────────────────────────
+g.add_portal(M, "선비족2", 10, 0, "U")
+g.add_portal(M, "선비족2", 10, 0, "U")
+pc, pd, pn = g.portal_to(M, "선비족2")
+check("portal add/조회", pc == (10, 0) and pd == "U" and pn == 2,
+      f"{pc} {pd} n={pn}")
+g.flush()
+g2 = MapGrid(g.root)
+pc2, pd2, pn2 = g2.portal_to(M, "선비족2")
+check("portal flush→load 왕복", pc2 == (10, 0) and pn2 == 2,
+      f"{pc2} n={pn2}")
+g2.import_bundle({M: {"portals": {"선비족2": {"dir": "U", "n": 3,
+                                              "x": 11, "y": 0}}}})
+pc3, pd3, pn3 = g2.portal_to(M, "선비족2")
+check("portal merge n합산+다수쪽 좌표", pn3 == 5 and pc3 == (11, 0),
+      f"{pc3} n={pn3}")
+
 # ── 7. 실데이터 (maps_cloud) ───────────────────────────────────────────
 mc = pathlib.Path(__file__).parent / "maps_cloud"
 if mc.is_dir() and any(mc.glob("*.json")):
@@ -160,6 +177,16 @@ if mc.is_dir() and any(mc.glob("*.json")):
         check("실데이터 선비족3 시뮬 도달", ok, f"steps={steps}")
         d, conf, src = nr.suggest("2()", (1, 1), (5, 5))
         check("실데이터 노이즈맵 기권", d is None, src)
+        # 포탈 그래프 (백필 후): 직결 + 다홉 BFS + 기권
+        pc, pd, hops = nr.portal_goal("선비족3", "선비족3-5(1)")
+        check("포탈 직결 (선비족3→3-5(1))",
+              pc is not None and pd == "U" and hops == 1,
+              f"{pc} {pd} hops={hops}")
+        pc, pd, hops = nr.portal_goal("선비족입구", "선비족3-5(3)")
+        check("포탈 다홉 BFS", pc is not None and hops >= 2,
+              f"첫출구 {pc} {pd} 남은홉 {hops}")
+        pc, pd, hops = nr.portal_goal("선비족입구", "없는맵XYZ")
+        check("포탈 기권", pc is None and hops == -1)
 else:
     print("[SKIP] maps_cloud 없음 — 실데이터 검사 생략")
 

@@ -59,6 +59,8 @@ class NavBrain:
         self._hold = {}         # purpose_key -> (dir, ts)
         self._sess = None
         self._in_x = self._in_g = self._out_y = None
+        self._pg_cache = None   # 맵간 포탈 그래프 캐시 (60s)
+        self._pg_ts = 0.0
         base = pathlib.Path(model_dir) if model_dir else pathlib.Path(__file__).parent
         self._model_path = base / NAV_ONNX
         self._init_net()
@@ -275,6 +277,77 @@ class NavBrain:
             return best_d, conf, src
         except Exception:
             return None, 0.0, "err"
+
+    # ------------------------------------------------- 맵간 그래프 (portals)
+    def _portal_graph(self):
+        """{from맵: {to맵: (x,y,dir,n)}} — maps/*.json portals 전수 스캔.
+
+        포탈은 드물게 변하므로 60s 캐시. 로드된 슬롯의 신규 관측도 반영.
+        """
+        now = time.time()
+        g = getattr(self, "_pg_cache", None)
+        if g is not None and now - self._pg_ts < 60.0:
+            return g
+        graph = {}
+        try:
+            import json as _json
+            for fp in self._grid.root.glob("*.json"):
+                try:
+                    d = _json.loads(fp.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                ps = d.get("portals") or {}
+                if not ps:
+                    continue
+                frm = d.get("map") or fp.stem
+                graph[frm] = {
+                    to: (int(p.get("x", 0)), int(p.get("y", 0)),
+                         str(p.get("dir", "-")), int(p.get("n", 0)))
+                    for to, p in ps.items()}
+        except Exception:
+            pass
+        # 메모리 슬롯(이번 세션 신규 관측)이 디스크보다 최신 → 덮어씀.
+        for name, s in self._grid._maps.items():
+            for to, p in (s.get("portals") or {}).items():
+                graph.setdefault(name, {})[to] = (
+                    int(p["x"]), int(p["y"]),
+                    str(p.get("dir", "-")), int(p.get("n", 0)))
+        self._pg_cache = graph
+        self._pg_ts = now
+        return graph
+
+    def portal_goal(self, from_map, to_map):
+        """from맵에서 to맵으로 가는 출구좌표/방향 — 직결 없으면 BFS 첫 홉.
+
+        반환 ((x,y), dir, 남은홉수) | (None, '-', -1). 기권=None (관례).
+        """
+        try:
+            graph = self._portal_graph()
+            src = graph.get(from_map) or {}
+            if to_map in src:
+                x, y, d, n = src[to_map]
+                return (x, y), d, 1
+            # BFS (최대 8홉) — 첫 홉 포탈 반환.
+            from collections import deque as _dq
+            q = _dq([(from_map, None, 0)])
+            first = {}
+            seen = {from_map}
+            while q:
+                cur, fh, hops = q.popleft()
+                if hops >= 8:
+                    continue
+                for nxt, (x, y, d, n) in (graph.get(cur) or {}).items():
+                    if nxt in seen:
+                        continue
+                    seen.add(nxt)
+                    f = fh or (x, y, d)
+                    if nxt == to_map:
+                        return (f[0], f[1]), f[2], hops + 1
+                    first[nxt] = f
+                    q.append((nxt, f, hops + 1))
+            return None, "-", -1
+        except Exception:
+            return None, "-", -1
 
     def unstick_dir(self, map_name, cur, blocked_dir, goal, avoid=()):
         """STUCK 우회 방향 제안 — blocked_dir 제외, flow 비용 최소 방향.

@@ -1085,6 +1085,20 @@ class Follower:
                 self._exit_dir_sunbi_locked = True
             else:
                 self._exit_dir_sunbi_locked = False
+            # 맵 grid 출구 수집 (2026-07-05 로드맵 §1 portals 통합):
+            # PORTAL-DB 중앙값+고정규칙 override 까지 끝난 최종 좌표/방향을
+            # maps/<맵>.json portals 에 누적 → 클라우드 병합으로 PC간 공유,
+            # NavBrain 맵간 그래프(재합류/자율사냥)의 간선이 된다.
+            try:
+                if self._exit_coord is not None \
+                        and self._is_valid_sunbi_map(self._exit_map) \
+                        and self._is_valid_sunbi_map(s.map_name):
+                    self._grid.add_portal(
+                        self._exit_map, s.map_name,
+                        self._exit_coord[0], self._exit_coord[1],
+                        self._exit_dir)
+            except Exception:
+                pass
             # EXIT-FALLBACK 리셋 — 새 전환 시작.
             self._exit_fallback_n = 0
             self._healer_coord_progress_ts = now

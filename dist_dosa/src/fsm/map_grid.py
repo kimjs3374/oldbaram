@@ -7,6 +7,9 @@ S0 실시간 수집기와 S1 백필 파서가 **같은 누적 코드**를 쓴다
 데이터 모델: maps/<맵명>.json
   cells   "x,y" -> {walk, tab}   walk=방문 누적, tab=빨탭(사냥 명당) 관측
   blocked "x,y" -> {DIR: cnt}    STUCK 로그 기반 차단 간선 (장애물 1차 증거)
+  portals "<도착맵>" -> {dir, n, x, y}  출구(포탈) — 로드맵 §1 portals_v2 흡수
+          (2026-07-05). x,y = PORTAL-DB 중앙값 보정된 출구좌표, n = 관측수.
+          맵끼리 그래프 연결 → NavBrain 맵간 재합류/자율사냥 토대.
 
 호출 측 책임: 좌표 dedup(이동 시에만 add_walk), STUCK edge(진입 시 1회 add_blocked).
 중복 호출하면 카운트가 부풀려져 상대 빈도가 왜곡된다.
@@ -44,6 +47,8 @@ def _new_slot():
         # 격수 막힘률(§6.5): "x,y" → {DIR: {try, block}}. 막힘률=block/try.
         "attempts": defaultdict(
             lambda: defaultdict(lambda: {"try": 0, "block": 0})),
+        # 출구: "<도착맵>" → {dir, n, x, y} (2026-07-05 portals_v2 흡수).
+        "portals": {},
         "dirty": False,
     }
 
@@ -92,6 +97,12 @@ class MapGrid:
                             "try": int(tb.get("try", 0)),
                             "block": int(tb.get("block", 0)),
                         }
+                for to, p in d.get("portals", {}).items():
+                    s["portals"][to] = {
+                        "dir": str(p.get("dir", "-")),
+                        "n": int(p.get("n", 0)),
+                        "x": int(p.get("x", 0)), "y": int(p.get("y", 0)),
+                    }
             except Exception:
                 pass  # 손상 파일이면 새로 시작 (수집은 멈추면 안 됨)
         return s
@@ -137,6 +148,41 @@ class MapGrid:
         s["dirty"] = True
         self._ver += 1
 
+    def add_portal(self, name: str, to_map: str, x: int, y: int,
+                   d: str) -> None:
+        """출구 관측 누적 — controller CTRL-MAPCHG 최종확정값을 받는다.
+
+        좌표/방향은 이미 PORTAL-DB 중앙값+고정규칙 override 를 거친 값이라
+        최신값으로 갱신(n만 누적). 호출측이 맵명 구조검증 책임.
+        """
+        to_map = canon_map_name(to_map)
+        _, s = self._slot(name)
+        if s is None or not to_map or not self._valid(x, y):
+            return
+        e = s["portals"].get(to_map) or {"dir": "-", "n": 0, "x": x, "y": y}
+        e["n"] = int(e.get("n", 0)) + 1
+        e["x"], e["y"] = int(x), int(y)
+        if d in ("L", "R", "U", "D"):
+            e["dir"] = d
+        s["portals"][to_map] = e
+        s["dirty"] = True
+        self._ver += 1
+
+    def portal_to(self, name: str, to_map: str):
+        """직결 출구 조회 → ((x,y), dir, n) | (None, '-', 0).
+
+        is_wall(핫패스, 메모리만)과 달리 lazy-load 포함 — 맵전환 시에만
+        불리므로 디스크 1회 허용.
+        """
+        _, s = self._slot(name)
+        if s is None:
+            return None, "-", 0
+        e = s["portals"].get(canon_map_name(to_map))
+        if not e:
+            return None, "-", 0
+        return (int(e["x"]), int(e["y"])), str(e.get("dir", "-")), \
+            int(e.get("n", 0))
+
     def import_bundle(self, bundle: dict) -> None:
         """클라우드/타 PC 묶음({맵명:{cells,blocked,...}})을 카운트 합산.
 
@@ -163,6 +209,18 @@ class MapGrid:
                         cur = s["attempts"][k][di]
                         cur["try"] += int(tb.get("try", 0))
                         cur["block"] += int(tb.get("block", 0))
+            for to, p in md.get("portals", {}).items():
+                cur = s["portals"].get(to)
+                pn = int(p.get("n", 0))
+                cn = int(cur.get("n", 0)) if cur else 0
+                # 관측 많은 쪽 좌표/방향 채택, n 은 합산 (병합 순서 무관)
+                if cur is None or pn >= cn:
+                    s["portals"][to] = {
+                        "dir": str(p.get("dir", "-")),
+                        "x": int(p.get("x", 0)), "y": int(p.get("y", 0)),
+                        "n": cn + pn}
+                else:
+                    cur["n"] = cn + pn
             s["dirty"] = True
             self._ver += 1
 
@@ -238,6 +296,7 @@ class MapGrid:
                 "blocked": {k: dict(v) for k, v in s["blocked"].items()},
                 "attempts": {k: {di: dict(tb) for di, tb in dd.items()}
                              for k, dd in s["attempts"].items()},
+                "portals": {to: dict(p) for to, p in s["portals"].items()},
             }
             tmp = self.root / f"{_safe(name)}.json.tmp"
             dst = self.root / f"{_safe(name)}.json"

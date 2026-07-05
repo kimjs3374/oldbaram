@@ -15,6 +15,8 @@ py -3 -m src.tools.cloud_logs --pull
 if errorlevel 1 (echo [%date% %time%] FAIL cloud_logs pull >> "%LOG%" & exit /b 1)
 py -3 _cloud_maps.py
 if errorlevel 1 (echo [%date% %time%] FAIL cloud_maps pull >> "%LOG%" & exit /b 1)
+py -3 _portal_backfill.py
+if errorlevel 1 (echo [%date% %time%] FAIL portal backfill >> "%LOG%" & exit /b 1)
 py -3 _nav_dataset.py
 if errorlevel 1 (echo [%date% %time%] FAIL dataset >> "%LOG%" & exit /b 1)
 

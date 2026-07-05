@@ -3331,6 +3331,13 @@ class HealerWorker(QtCore.QThread):
                 except Exception:
                     goal = None
                 ctx = "MAPNEQ"
+                if goal is None:
+                    # 출구좌표 미확정 → 학습된 포탈 그래프로 격수맵행 출구.
+                    _amap = getattr(atk, "map_name", "") or ""
+                    if _amap:
+                        goal, _pd, _hops = nav.portal_goal(
+                            self.healer_map, _amap)
+                        ctx = f"MAPNEQ-P{_hops}" if goal else ctx
             elif bool(atk.coord_valid):
                 goal = (atk.x, atk.y)
                 ctx = "B3"
@@ -3889,6 +3896,13 @@ class HealerWorker(QtCore.QThread):
                     _exc = fol.exit_coord()
                 except Exception:
                     _exc = None
+                if _nv is not None and _exc is None:
+                    # 2026-07-05 포탈 그래프: 출구좌표조차 없으면 학습된
+                    # (힐러맵→격수맵) 출구로 목표 대체 (기권 시 기존 체인).
+                    _amap = getattr(atk, "map_name", "") or ""
+                    if _amap:
+                        _exc, _pd, _hops = _nv.portal_goal(
+                            self.healer_map, _amap)
                 if _nv is not None and _exc is not None:
                     _nd, _nc, _ns = _nv.suggest(
                         self.healer_map, h, _exc, last_dir="-",
