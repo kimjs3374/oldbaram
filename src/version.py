@@ -12,4 +12,4 @@
   v151 '존재-스킵 오판' 사고의 근본원인.)
   ⚠️ dist_dosa/src/version.py 도 같은 값으로 동기.
 """
-BUILD_VERSION = "0.1.20"
+BUILD_VERSION = "0.1.21"

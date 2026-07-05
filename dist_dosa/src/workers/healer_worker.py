@@ -3622,6 +3622,26 @@ class HealerWorker(QtCore.QThread):
         dur = now - self._run_start_ts
         if dur < 0.8:
             return want, reason
+        # 2026-07-05 사용자: 출구로 '무조건' 밀기 — 맵전환 중(map_neq)엔 want 방향
+        # 이 학습된 벽(is_wall: STUCK벽/격수막힘률)이 아니면 회피/대기 절대 금지,
+        # exit_dir 계속 밀기. 맵데이터상 출구방향 장애물 0 확인(사용자) → 막힘=
+        # 일시(몹/봇)이므로 밀면 뚫림. 옆으로 새면(ORTHO) trail 이탈·헤맴·쩔캐
+        # 낙오. 벽이거나 5초 초과(미학습벽 대비, 이후 RESET이 학습)면 아래 회피.
+        if map_neq and want in ("L", "R", "U", "D") and dur < 5.0:
+            _iw = False
+            try:
+                _g0 = getattr(fol, "_grid", None)
+                if _g0 is not None:
+                    _iw = _g0.is_wall(self.healer_map, hx, hy, want)
+            except Exception:
+                _iw = False
+            if not _iw:
+                if now - self._stuck_last_log >= 1.0:
+                    self._stuck_last_log = now
+                    self.log.info(
+                        f"[EXIT-PUSH] 출구 무조건 밀기 {want} (벽 아님) "
+                        f"h={h} dur={dur:.1f}s")
+                return want, reason
         # 2026-06-15 통로 정렬(STUCK-ALIGN) — 좌우 진동 근본해결.
         # 옛바는 특정 x(가로 통로) 또는 특정 y(세로 통로)에서만 그 축으로
         # 뚫린다. 격수가 x=7 통로로 위로 갔는데 힐러가 x=9에서 U를 누르면
