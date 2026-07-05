@@ -1058,11 +1058,15 @@ class Follower:
                                                  and p_dir != "-")):
                     self.log.info(
                         f"[PORTAL-DB] {self._exit_map!r}→{s.map_name!r} "
-                        f"coord={p_coord} dir={p_dir!r} "
-                        f"(이번 관측 coord={self._exit_coord} "
-                        f"dir={self._exit_dir!r})"
+                        f"median={p_coord} dir={p_dir!r} vs 격수실제="
+                        f"{self._exit_coord!r} (coord=격수실제 우선)"
                     )
-                self._exit_coord = p_coord
+                # 2026-07-05 사용자: 격수 실제 출구(이번 랩 EXIT-TRIM 경계점)가
+                # 정률적이라 stale median 보다 신뢰. median coord 는 이번 관측이
+                # 없을(None) 때만 폴백. (실측: 선비족3-5(7) 격수 실제 (7,0) 인데
+                # median (2,0) 이 덮어써 힐러가 엉뚱한 x=2 로 헤맴 → 근본 차단.)
+                if self._exit_coord is None:
+                    self._exit_coord = p_coord
                 if p_dir in ("L", "R", "U", "D"):
                     self._exit_dir = p_dir
             # 선비족 z(층) 전환 고정 출구 방향 — 모든 추정의 최종 override

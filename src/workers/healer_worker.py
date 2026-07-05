@@ -3290,9 +3290,46 @@ class HealerWorker(QtCore.QThread):
         # 슬롯이 못 잡는 순간 겹침은 STUCK-HOLD/RESET 이 처리.
         want, reason = self._apply_stuck_filter(want, reason, atk, fol,
                                                 map_neq)
+        # 2026-07-05 사용자: 격수보다 '절대' 앞서나가지 말 것 — 전역 클램프.
+        want, reason = self._clamp_overtake(want, reason, atk, map_neq)
         # NavBrain shadow: 최종 want 확정 후 제안 대조 로그만 (키 출력 무영향).
         if self._nav_mode != "off":
             self._nav_shadow(want, atk, fol, map_neq)
+        return want, reason
+
+    def _clamp_overtake(self, want, reason, atk, map_neq: bool) -> tuple:
+        """격수 진행방향으로 힐러가 이미 격수 위치 이상이면 그 방향 이동 차단.
+
+        되돌아오는(뒤로)/직교 이동은 허용 → 추종은 유지하되 앞지르기만 금지.
+        FOLLOW_OFFSET=1(격수 뒤 1칸) 정책을 trail/nav 브랜치까지 전역 강제.
+        맵전환(map_neq)/재고정 중엔 미적용 — 출구 접근이 격수 '앞'일 수 있음.
+        좌표축: R=x+, L=x-, D=y+, U=y-.
+        """
+        try:
+            if want not in ("L", "R", "U", "D"):
+                return want, reason
+            if map_neq or not bool(getattr(atk, "coord_valid", False)):
+                return want, reason
+            if getattr(self, "_reanchor_active", False):
+                return want, reason
+            h = self.healer_coord
+            if h is None:
+                return want, reason
+            ald = getattr(atk, "last_dir", "-")
+            # 격수 진행방향으로의 이동만 클램프(정지/직교/후진은 통과).
+            if ald not in ("L", "R", "U", "D") or want != ald:
+                return want, reason
+            hx, hy = h
+            ax, ay = atk.x, atk.y
+            ahead = ((ald == "R" and hx >= ax)
+                     or (ald == "L" and hx <= ax)
+                     or (ald == "D" and hy >= ay)
+                     or (ald == "U" and hy <= ay))
+            if ahead:
+                return "-", (f"NO-OVERTAKE {want} 격수앞 대기 "
+                             f"h={h} a=({ax},{ay}) ald={ald}")
+        except Exception:
+            pass
         return want, reason
 
     def set_nav_mode(self, mode: str) -> None:
