@@ -2385,12 +2385,14 @@ class HealerWorker(QtCore.QThread):
                                 )
                         except Exception as e:
                             self.log.info(f"[TAB-CONFIRM-TAB] 실패: {e}")
-                    elif tab_action == 'done_ok':
+                    elif tab_action in ('done_ok', 'done_coexist'):
                         elapsed = now_sec - fol._tab_confirm_started
                         # #4: post-confirm stabilize 창 설정 (150ms).
                         fol.note_tab_done_ok(now_sec)
+                        _how = ("red&!white" if tab_action == 'done_ok'
+                                else "red안정(white공존구제)")
                         self.log.info(
-                            f"[TAB-CONFIRM-DONE] 복귀 확정 (red&!white "
+                            f"[TAB-CONFIRM-DONE] 복귀 확정 ({_how} "
                             f"{fol._tab_confirm_required}f) "
                             f"elapsed={elapsed*1000:.0f}ms route=A "
                             f"map_neq_at_arm={fol._tab_confirm_map_neq_at_arm} "
@@ -3317,6 +3319,14 @@ class HealerWorker(QtCore.QThread):
                 return want, reason
             if self._cur_red_raw and not self._cur_white_raw:
                 return want, reason  # 빨탭 확정 → 통과
+            if not self._cur_white_raw:
+                # 확정 직후 유예(post_tab_grace) 창엔 red 깜빡여도 통과
+                # (6→7 오실레이션 방지, PORTAL-WAIT 와 동일 정책).
+                try:
+                    if fol.post_tab_grace_active(time.time()):
+                        return want, reason
+                except Exception:
+                    pass
             h = self.healer_coord
             try:
                 exc = fol.exit_coord()
@@ -3890,7 +3900,17 @@ class HealerWorker(QtCore.QThread):
                 # 타겟/자힐 로스 → 손으로 넘겨야. follow_only(쩔)는 빨탭 자체를
                 # 안 쓰므로 게이트 면제(trail/좌표 추종으로 진입).
                 if not self.follow_only:
+                    # 2026-07-05 사용자(6→7 개지랄): TAB-CONFIRM-DONE 직후 이동
+                    # 중 raw red 깜빡임에 다시 PORTAL-WAIT 로 막혀 출구서 오실레
+                    # 이션하며 못 건너던 근본 → 확정 직후 post_tab_grace(1.5s)
+                    # 창엔 red 깜빡여도(단 흰탭 재출현 아니면) 확정 신뢰=통과.
                     red_ok = self._cur_red_raw and not self._cur_white_raw
+                    if not red_ok and not self._cur_white_raw:
+                        try:
+                            if fol.post_tab_grace_active(time.time()):
+                                red_ok = True
+                        except Exception:
+                            pass
                     if not red_ok:
                         # 진입 보류 — 0.5s throttle 로그로 대기 사실 기록.
                         _nw = time.time()

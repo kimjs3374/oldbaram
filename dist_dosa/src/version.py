@@ -12,4 +12,4 @@
   v151 '존재-스킵 오판' 사고의 근본원인.)
   ⚠️ 루트 src/version.py 와 같은 값으로 동기(빌드 대상은 루트 src).
 """
-BUILD_VERSION = "0.1.19"
+BUILD_VERSION = "0.1.20"

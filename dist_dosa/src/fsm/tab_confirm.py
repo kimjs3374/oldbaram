@@ -45,6 +45,7 @@ class TabConfirm:
         pre_stability_duration: float = 0.0,
         post_confirm_duration: float = 0.0,
         retry_max: int = 2,
+        coexist_grace: float = 0.5,
     ):
         # 상수 (Follower 생성 시 주입).
         self.hard_timeout = hard_timeout
@@ -54,6 +55,10 @@ class TabConfirm:
         self.pre_stability_duration = pre_stability_duration
         self.post_confirm_duration = post_confirm_duration
         self.retry_max = retry_max
+        # 2026-07-05 red&white 공존 구제: red 가 이 시간(초) 이상 연속 잡히면
+        # white 공존해도 복구 인정 (게임 red_coexist 로 red&!white 못 만족해
+        # 6~40초 프리즈로 맵전환때 서있던 근본 차단).
+        self.coexist_grace = coexist_grace
 
         # 런타임 상태.
         self.active: bool = False
@@ -71,6 +76,7 @@ class TabConfirm:
         # 2026-06-11: Tab(본인 빨탭) 송신 여부. MAP-SEQ-EDGE 취소 시 "이미 본인
         # 빨탭 찍었나" 판정용 → 찍었으면 맵전환=전이시도로 보고 grace(재arm 억제).
         self.tab_sent: bool = False
+        self._red_since: float = 0.0   # red_raw 연속 시작 시각(공존 구제용).
 
     # ----- 외부 API --------------------------------------------------
 
@@ -91,6 +97,7 @@ class TabConfirm:
         self.pre_stability_h_coord = None
         self.post_confirm_pause_until = 0.0
         self.tab_sent = False
+        self._red_since = 0.0
 
     def tick(
         self,
@@ -172,6 +179,18 @@ class TabConfirm:
                 return 'done_ok'
         else:
             self.counter = 0
+        # 2026-07-05 red&white 공존 구제 (사용자 '흰탭 복구 병신'): red 가
+        # coexist_grace 초 연속 잡히면 white 공존해도 복구 인정. 게임이 red&white
+        # 동시표시(red_coexist)해 red&!white 를 못 만족 → 6~40초 프리즈로 맵전환때
+        # 서있던 근본 차단. 안정성(0.5s) 요구로 순간 오탐(짧은 red) 배제.
+        if red_raw:
+            if self._red_since <= 0.0:
+                self._red_since = now
+            elif now - self._red_since >= self.coexist_grace:
+                self.active = False
+                return 'done_coexist'
+        else:
+            self._red_since = 0.0
         return 'wait'
 
     def note_fg_mismatch(self, now: float) -> bool:
@@ -205,6 +224,7 @@ class TabConfirm:
         self.pre_stability_h_coord = None
         self.post_confirm_pause_until = 0.0
         self.tab_sent = False
+        self._red_since = 0.0
         return old_sub
 
     def is_pausing(self, now: float) -> bool:
