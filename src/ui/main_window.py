@@ -1404,6 +1404,12 @@ class MainWindow(QtWidgets.QMainWindow):
         for _k in ("self_heal_hp_thr", "gyoungryeok_mp_thr"):
             if int(d.get(_k, -1)) < 0 and int(prev.get(_k, -1)) >= 0:
                 d[_k] = prev[_k]
+        # XP stick (2026-07-05) — alert 경로 부분 패킷(xp 미탑재=0)이 유효
+        # 총획득/시간당을 0으로 덮지 않게. 힐러 재시작 시엔 새 값이 오르면서
+        # 자연 교체(총획득은 힐러측 단조 누적이라 감소 자체가 비정상).
+        for _k in ("xp_gained", "xp_per_hour"):
+            if int(d.get(_k, 0)) <= 0 and int(prev.get(_k, 0)) > 0:
+                d[_k] = prev[_k]
         if not str(d.get("nickname", "") or "").strip() and prev.get("nickname"):
             d["nickname"] = prev["nickname"]
         # NetworkDialog에 지정된 닉이 있으면 OCR 결과보다 우선 (최상위 override).

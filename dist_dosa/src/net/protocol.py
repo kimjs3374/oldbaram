@@ -139,6 +139,10 @@ class CooldownReport:
     nickname: str = ""
     # 시간당 예상 경험치 (가산형 추정치). 0 = 미측정/부족.
     xp_per_hour: int = 0
+    # 2026-07-05: 세션 총획득 XP (힐러/쩔캐 — 격수 오버레이 '총획득' 표시).
+    # 0 = 미측정/구버전 힐러. ⚠️PROTOCOL_VER 불변 유지 — from_bytes 미지키
+    # 필터가 하위호환을 보장하며, ver 를 올리면 구버전과 전면 단절됨.
+    xp_gained: int = 0
     # 파력무참 버프 지속시간 OCR 결과 (초). -1 = OCR 영역 미지정/실패.
     # 격수는 이 값 >= 0 이면 우선 사용, -1이면 cd_parlyuk로 역산 폴백.
     buff_parlyuk_sec: int = -1

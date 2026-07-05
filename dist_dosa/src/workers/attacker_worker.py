@@ -422,6 +422,10 @@ class AttackerWorker(QtCore.QThread):
                             "xp_per_hour": int(getattr(
                                 rep, "xp_per_hour", 0
                             )),
+                            # 2026-07-05 세션 총획득 XP — heartbeat._on_rep
+                            # 와 parity 필수 (한쪽 누락 시 워커 가동/idle 간
+                            # 표시 갈라지는 전례 있음, 아래 event_text 주석).
+                            "xp_gained": int(getattr(rep, "xp_gained", 0)),
                             # 2026-04-21: 힐러 이벤트 알림 (공력증강 임박 / 자힐
                             # 하는중). main_window 가 event_seq 증가 감지 시
                             # overlay.push_alert 호출. 이전엔 이 필드 누락해서

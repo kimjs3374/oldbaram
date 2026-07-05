@@ -121,6 +121,17 @@ class XpOcr:
     def xp_per_hour(self) -> int:
         return int(self._last_xp_per_hour)
 
+    def xp_gained(self) -> int:
+        """세션 총획득 XP — 레벨업 흡수 누산(_total_delta) + 현재 구간.
+
+        anchor 미확정 시 0. 연속 리젝트 자가복구로 값이 리셋될 수 있으므로
+        단조 누적이 필요하면 호출측(healer_worker CD-SEND)이 base 로 흡수.
+        """
+        if self._anchor_xp < 0:
+            return 0
+        return int(self._total_delta
+                   + max(0, self._last_xp - self._anchor_xp))
+
     def reset(self) -> None:
         """세션 재시작 (예: 영역 바꾸거나 사용자 요청)."""
         self._session_start_ts = 0.0

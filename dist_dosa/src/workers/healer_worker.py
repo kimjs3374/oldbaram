@@ -380,6 +380,10 @@ class HealerWorker(QtCore.QThread):
         # 영역 설정 (절대 화면 좌표). game만 지정 시 YOLO 추론 크롭.
         self._game_region_abs: Optional[Tuple[int, int, int, int]] = None
         self._xp_region_abs: Optional[Tuple[int, int, int, int]] = None
+        # 세션 총획득 XP 단조 누적 (2026-07-05): XpOcr 자가복구(연속 리젝트
+        # 5회 anchor 풀리셋)로 xp_gained() 가 뒷걸음질하면 base 로 흡수.
+        self._xpg_base = 0
+        self._xpg_last = 0
         self._hp_region_abs: Optional[Tuple[int, int, int, int]] = None
         self._mp_region_abs: Optional[Tuple[int, int, int, int]] = None
         # HP/MP OCR 리더 — 자힐/공력증강/자가부활 predicate 용.
@@ -2872,8 +2876,16 @@ class HealerWorker(QtCore.QThread):
                                 p_rem = self._timer_parlyuk.remaining()
                                 b_rem = self._timer_baekho.remaining()
                                 xph = 0
+                                xpg = 0
                                 if self._xp_ocr is not None:
                                     xph = int(self._xp_ocr.xp_per_hour())
+                                    # 총획득: OCR 리셋 뒷걸음질을 base 로
+                                    # 흡수해 워커 세션 단조 누적 유지.
+                                    _g = int(self._xp_ocr.xp_gained())
+                                    if _g < self._xpg_last:
+                                        self._xpg_base += self._xpg_last
+                                    self._xpg_last = _g
+                                    xpg = self._xpg_base + _g
                                 # 파력무참 버프 지속시간 OCR 결과 — 영역 미지정 시 -1.
                                 buff_sec = -1
                                 try:
@@ -2912,6 +2924,7 @@ class HealerWorker(QtCore.QThread):
                                     armed=bool(self.armed),
                                     nickname=str(cd_read.nickname or ""),
                                     xp_per_hour=xph,
+                                    xp_gained=xpg,
                                     buff_parlyuk_sec=int(buff_sec),
                                     hp_pct=h_hp_pct,
                                     mp_pct=h_mp_pct,

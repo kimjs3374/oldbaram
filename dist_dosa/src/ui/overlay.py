@@ -620,6 +620,8 @@ class GameOverlay(_ScaledOverlay):
             "armed": bool(d.get("armed", False)),
             "has_armed": "armed" in d,
             "xph": int(d.get("xp_per_hour", 0) or 0),
+            # 2026-07-05: 세션 총획득 XP (힐러측 단조 누적치).
+            "xpg": int(d.get("xp_gained", 0) or 0),
         }
         self._relayout()
         self.update()
@@ -648,14 +650,20 @@ class GameOverlay(_ScaledOverlay):
             b = self._eff_cd(r.get("b", -1), r.get("b_ts", 0.0))
             j = self._eff_cd(r.get("j", -1), r.get("j_ts", 0.0))
             xph = r["xph"]
+            xpg = int(r.get("xpg", 0) or 0)
             if p >= 0:
                 lines.append((idx, nick, f"파력무참 : {_fmt_cd_kr(p)}", p))
             if b >= 0:
                 lines.append((idx, nick, f"백호의희원 : {_fmt_cd_kr(b)}", b))
             if j >= 0:
                 lines.append((idx, nick, f"지폭지술 : {_fmt_cd_kr(j)}", j))
-            if xph > 0:
-                lines.append((idx, nick, _fmt_xph(xph), -1))
+            # 경험치: 총획득 · 시간당 (격수 자신 HuntOverlay 와 동일 포맷터).
+            # cd=-2 = 전폭(9pt) 특수 렌더 표식 — 값 컬럼(140px)엔 안 들어가
+            # left_pad 전폭(219px)에 그린다. '경험치' 접두어는 9pt 247px 로
+            # 초과라 제외 (무접두 195px, 극단 999.99억 208px — 실측).
+            if xpg > 0 or xph > 0:
+                lines.append((idx, nick,
+                              f"{_fmt_xp(xpg)} · {_fmt_xph(xph)}", -2))
         return lines
 
     def _relayout(self) -> None:
@@ -691,6 +699,13 @@ class GameOverlay(_ScaledOverlay):
                     self._text(qp, left_pad, y, f"{nick}",
                                QtGui.QColor(135, 210, 255))
                     last_idx = idx
+                # cd=-2: 경험치 줄 — 전폭(9pt) 특수 렌더 (값 컬럼 폭 초과).
+                if cd == -2:
+                    qp.setFont(self._font(9))
+                    self._text(qp, left_pad + self._px(8), y, text,
+                               QtGui.QColor(140, 240, 158))
+                    y += row_h
+                    continue
                 # cd<=0: 준비됨/xph(녹색). 쿨 임박~진행은 잔여초별 색.
                 if cd <= 0:
                     color = QtGui.QColor(140, 240, 158)

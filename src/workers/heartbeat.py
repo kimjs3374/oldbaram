@@ -93,6 +93,8 @@ class AttackerHeartbeat(QtCore.QThread):
                         "buff_parlyuk_sec": int(getattr(
                             rep, "buff_parlyuk_sec", -1)),
                         "xp_per_hour": int(getattr(rep, "xp_per_hour", 0)),
+                        # 2026-07-05 세션 총획득 (attacker_worker parity).
+                        "xp_gained": int(getattr(rep, "xp_gained", 0)),
                         "event_text": str(getattr(rep, "event_text", "") or ""),
                         "event_seq": int(getattr(rep, "event_seq", 0)),
                         # 힐러 HP/MP (격수 HP/MP 오버레이용).
