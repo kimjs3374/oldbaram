@@ -3762,18 +3762,30 @@ class HealerWorker(QtCore.QThread):
             _peers = self._parse_peers(atk)
             if _peers:
                 _pdx, _pdy = self._PEER_DXY[want]
-                if (h[0] + _pdx, h[1] + _pdy) in _peers:
-                    # 2026-07-05 P2: 앞칸이 봇이면 인내대기 — STUCK 시계를 리셋해
-                    # RESET/note_blocked(가짜벽) 로 절대 승격 안 되게. 봇은 곧
-                    # 비키거나 같이 이동(격수 추종)하므로 벽이 아님. 옆걸음 금지
-                    # 유지(2026-06-30 롤백 존중). 격수 이동 시 want 갱신돼 해제.
+                # 2026-07-07: 정면 1~2칸(같은 축)에 봇이 정체하면 대기. 기존엔
+                # 정확히 1칸 앞칸만 판정 → 봇 3대가 뭉쳐 2칸 앞에서 밀릴 때
+                # 놓쳐 STUCK-ORTHO 옆회피(07-07 실측: 회피의 55~65%가 봇막힘).
+                # 정면 2칸까지 확대(직교오프셋0 한정 — 대각은 진로 직접막음
+                # 아니라 좁은통로 과대기 유발하므로 제외).
+                _pk = 0
+                for _k in (1, 2):
+                    if (h[0] + _pdx * _k, h[1] + _pdy * _k) in _peers:
+                        _pk = _k
+                        break
+                if _pk:
+                    # 앞칸이 봇이면 인내대기 — STUCK 시계를 리셋해 RESET/
+                    # note_blocked(가짜벽) 로 절대 승격 안 되게. 봇은 곧 비키거나
+                    # 같이 이동(격수 추종)하므로 벽이 아님. 옆걸음 금지 유지
+                    # (2026-06-30 롤백 존중). 격수 이동 시 want 갱신돼 해제.
                     self._run_start_ts = now
                     self._run_start_pos = h
                     if now - self._stuck_last_log >= 0.5:
                         self._stuck_last_log = now
                         self.log.warning(
-                            f"[PEER-WAIT] {want}막힘 앞 봇 → 우회금지 대기 h={h}")
-                    return "-", f"PEER-WAIT {want}막힘 앞 봇 → 우회 금지 대기"
+                            f"[PEER-WAIT] {want}막힘 앞 봇({_pk}칸) → "
+                            f"우회금지 대기 h={h}")
+                    return "-", (f"PEER-WAIT {want}막힘 앞 봇({_pk}칸) → "
+                                 f"우회 금지 대기")
         # 2026-06-16: 맵전환 중(map_neq)엔 격수가 이미 다음 맵에 있어 atk 좌표로
         # 우회축을 정하면 출구 반대로 처박힘. (7)→로비 출구(6,0)는 위인데 격수가
         # 로비 좌표(25,7)라 "아래"로 판단→D 우회→출구 정반대로 내려감(163713 로그
