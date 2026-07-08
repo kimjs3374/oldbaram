@@ -33,6 +33,17 @@
   오판') 사고의 근본원인. 배포 순서: ⓪버전업 → ①exe빌드+cloud_uploader_dist →
   ②커밋(vNN) → ③푸시. (상세: 메모리 `feedback_finish_deploy_commit_push.md`)
 
+- **`.bat` 빌드는 반드시 PowerShell 툴 + 절대경로**:
+  `cmd /c "D:\oldbaram\build_nuitka.bat > log 2>&1"`. Bash 툴에서 `cmd.exe /c` 를 쓰면
+  MSYS 가 `/c` 를 `C:\` 로 오변환 → **nuitka 안 돌고 cmd 배너만 찍고 exit 0**.
+  exit 0 을 신뢰하지 말 것. 유일한 증거는 **exe mtime > 소스 mtime** +
+  `cloud_uploader_dist --dry-run` 변경 개수 ≠ 0. (2026-07-05·07-08 두 번 밟음)
+
+- **`releases` 는 exe/.py 두 채널이 공유하는 테이블**. 어느 쪽을 고치든 반대 채널과
+  런처(`launcher.py`)의 읽기 지점까지 **같이** 점검. 한쪽만 방어하면 반대편에서 터진다.
+  런처 로그 `배포 manifest 없음 → 기존 실행` = 정상 스킵 아니라 **배포 사고 신호**.
+  (상세: 메모리 `project_release_channel_collision.md`)
+
 ## 최우선 행동 원칙
 
 - **사용자 지시 없이 작업 시작 금지.** "바로 수정하겠습니다" 같은 혼자 판단 금지.

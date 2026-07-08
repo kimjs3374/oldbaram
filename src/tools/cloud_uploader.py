@@ -103,17 +103,43 @@ def main() -> None:
     url, key, bucket = adm["url"], adm["service_key"], adm["bucket"]
     H = {"apikey": key, "Authorization": f"Bearer {key}"}
 
-    # 기존 최신 manifest (증분 비교 기준)
+    # 🔴 2026-07-08 사고 수정: releases 는 exe 채널(cloud_uploader_dist)과
+    # 공유 테이블이고 version 카운터도 공유한다. 최신 1행만 보면:
+    #   ① 직전이 exe 채널 행(manifest=[])일 때 prev={} → 전 파일 "변경" 오판
+    #   ② 새 행에 dist_manifest 를 안 넣어 → 런처가 "배포 manifest 없음" 으로
+    #      전 사용자 자동업데이트 정지 (v163 실사고, 매일 05시 nav_auto 재발)
+    # 각 컬럼별로 "비어있지 않은 최신 행"을 따로 찾고, dist_manifest 는 그대로
+    # 승계해 새 행에 다시 기록한다 (exe 채널 배포를 .py 배포가 덮지 않도록).
     r = requests.get(
         f"{url}/rest/v1/releases",
         headers=H,
-        params={"select": "version,manifest", "order": "version.desc", "limit": "1"},
+        params={"select": "version,manifest,dist_manifest,build_version",
+                "order": "version.desc", "limit": "20"},
         timeout=_TIMEOUT,
     )
     r.raise_for_status()
     rows = r.json()
-    prev_ver = rows[0]["version"] if rows else 0
-    prev = {e["path"]: e["sha256"] for e in (rows[0]["manifest"] if rows else [])}
+    prev_ver = int(rows[0]["version"]) if rows else 0
+    prev = {}
+    for row in rows:
+        m = row.get("manifest") or []
+        if m:
+            prev = {e["path"]: e["sha256"] for e in m}
+            print(f"증분 기준: v{row['version']} (manifest {len(m)}개)")
+            break
+    # exe 채널 배포물 승계 — 이 값을 새 행에 그대로 실어야 런처가 계속 본다.
+    dist_manifest, dist_bv = [], None
+    for row in rows:
+        dm = row.get("dist_manifest") or []
+        if dm:
+            dist_manifest = dm
+            dist_bv = row.get("build_version")
+            print(f"dist_manifest 승계: v{row['version']} ({len(dm)}개, "
+                  f"build={dist_bv})")
+            break
+    if rows and not dist_manifest:
+        print("[WARN] 최근 20개 릴리스에 dist_manifest 없음 — 런처 채널 미배포 "
+              "상태. 이 릴리스도 런처엔 안 보인다.")
 
     files = collect_files()
     manifest: List[dict] = []
@@ -168,8 +194,15 @@ def main() -> None:
     hr["Content-Type"] = "application/json"
     hr["Prefer"] = "return=minimal"
     payload = {"version": new_ver, "changelog": args.changelog, "manifest": manifest}
-    if build_ver:
-        payload["build_version"] = build_ver
+    # dist_manifest 는 exe 채널 배포물 목록 — 그대로 승계(런처가 이 행을 본다).
+    if dist_manifest:
+        payload["dist_manifest"] = dist_manifest
+    # build_version 은 dist_manifest 와 짝이다. 승계한 exe 배포물의 버전을 쓴다.
+    # (.py 채널은 exe 를 안 바꾸므로 src/version.py 값을 쓰면 런처가 .version 에
+    #  실제 exe 와 다른 버전을 기록 → 다음 배포가 "이미 최신" 오판.)
+    _bv_use = dist_bv or build_ver
+    if _bv_use:
+        payload["build_version"] = _bv_use
 
     def _post(p):
         return requests.post(
@@ -186,8 +219,9 @@ def main() -> None:
         payload.pop("build_version")
         rr = _post(payload)
     rr.raise_for_status()
-    _bv = f" build={build_ver}" if build_ver and "build_version" in payload else ""
-    print(f"[OK] 릴리스 v{new_ver}{_bv} 생성 완료. "
+    _bv = f" build={_bv_use}" if _bv_use and "build_version" in payload else ""
+    _dm = f" dist_manifest승계={len(dist_manifest)}개" if dist_manifest else ""
+    print(f"[OK] 릴리스 v{new_ver}{_bv}{_dm} 생성 완료. "
           f"업로드 {len(changed)}개 / 총 {len(files)}개.")
 
 

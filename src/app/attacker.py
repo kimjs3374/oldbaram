@@ -30,6 +30,13 @@ try:
 except Exception:
     _HAVE_WIN32 = False
 
+# 좌표 OCR 실패 로그 간격(초). AsyncOcr.latest() 가 같은 실패 결과를 매 루프
+# 반환하므로 무제한 로그하면 초당 수백 줄이 찍힌다(2026-07-08 실측 45MB/12분).
+_OCR_FAIL_LOG_SEC = 30.0
+# 좌표 OCR 연속 실패가 이 시간을 넘으면 coord_valid=False 송신(직전 좌표 홀드
+# 중단). 단발 실패로 즉시 무효화하면 힐러 UI 가 "-" 로 깜빡인다.
+_COORD_STALE_SEC = 3.0
+
 
 class Attacker:
     def __init__(self, cfg, log_cb=None, stat_cb=None, own_cd_cb=None):
@@ -87,6 +94,10 @@ class Attacker:
         self._seq = 0
         self._coord_hist = deque(maxlen=6)
         self._last = State()
+        # 좌표 OCR 실패 추적 (로그 스로틀 + coord_valid 무효화 유예).
+        self._coord_fail_since = 0.0     # 실패 시작 시각(0=실패 아님)
+        self._ocr_fail_log_ts = 0.0      # 마지막 [ocr-fail] 로그 시각
+        self._ocr_fail_suppressed = 0    # 그 사이 억제된 실패 횟수
         # 2026-04-22 B안: 맵 변경 hold 제거. 오염 필터링은 힐러측으로 일원화.
         # (구 self._map_hold_until/_map_hold_sec 제거 — UI "-" 깜빡임 해소)
         self._prev_sent_map = ""
@@ -706,14 +717,53 @@ class Attacker:
                     st.last_dir = self._dir()
                 if r.map_name:
                     st.map_name = r.map_name
-                if not r.coord:
-                    try:
-                        box = getattr(self.ocr, "_last_coord_box", None)
-                        self.log(f"[ocr-fail] raw={r.raw_coord_text!r} "
-                                 f"frame={frame.shape[1]}x{frame.shape[0]} "
-                                 f"crop_box={box}")
-                    except Exception:
-                        pass
+                if r.coord:
+                    # 좌표 복구 — 실패 구간 종료 보고.
+                    if self._coord_fail_since:
+                        _dur = now_ts - self._coord_fail_since
+                        self.log(f"[ATK-COORD-OK] 좌표 OCR 복구 "
+                                 f"(실패 {_dur:.1f}s, 로그억제 "
+                                 f"{self._ocr_fail_suppressed}회)")
+                    self._coord_fail_since = 0.0
+                    self._ocr_fail_suppressed = 0
+                    self._ocr_fail_log_ts = 0.0
+                else:
+                    # 🔴 2026-07-08: 좌표 HUD 가 없는 맵(국경지대 등)에 들어가면
+                    # OCR 이 영구 실패한다. AsyncOcr.latest() 는 같은 실패 결과를
+                    # 매 루프 되돌려주므로 무조건 로그하면 초당 수백 줄이 찍힌다
+                    # (실측: 12분에 415,479줄 / 45MB — 로그·업로드 마비).
+                    # → 최초 1회 + 이후 30초 간격 요약만.
+                    if not self._coord_fail_since:
+                        self._coord_fail_since = now_ts
+                    if now_ts - self._ocr_fail_log_ts >= _OCR_FAIL_LOG_SEC:
+                        try:
+                            box = getattr(self.ocr, "_last_coord_box", None)
+                            _sup = (f" 억제 {self._ocr_fail_suppressed}회"
+                                    if self._ocr_fail_suppressed else "")
+                            self.log(f"[ocr-fail] raw={r.raw_coord_text!r} "
+                                     f"map={r.map_name!r} "
+                                     f"경과={now_ts - self._coord_fail_since:.0f}s"
+                                     f"{_sup} "
+                                     f"frame={frame.shape[1]}x{frame.shape[0]} "
+                                     f"crop_box={box}")
+                        except Exception:
+                            pass
+                        self._ocr_fail_log_ts = now_ts
+                        self._ocr_fail_suppressed = 0
+                    else:
+                        self._ocr_fail_suppressed += 1
+                    # 🔴 좌표 OCR 이 오래 실패했는데 coord_valid=True 를 계속
+                    # 쏘면(직전 좌표 홀드) 힐러는 "격수 살아서 여기 있음" 으로
+                    # 믿고 없는 좌표를 추종한다. 실측: 국경지대에서 12분간
+                    # coord=(20,4) valid=1 raw='' 송신.
+                    # 단발 OCR 실패로 즉시 무효화하면 힐러 UI 가 깜빡이므로
+                    # (2026-04-22 hold 분기 제거 이력) 유예 후에만 무효화한다.
+                    if now_ts - self._coord_fail_since >= _COORD_STALE_SEC:
+                        if st.coord_valid:
+                            self.log(f"[ATK-COORD-STALE] 좌표 OCR "
+                                     f"{now_ts - self._coord_fail_since:.0f}s 실패 "
+                                     f"→ coord_valid=0 송신 (좌표 홀드 중단)")
+                        st.coord_valid = False
 
             # OCR 블록에서 map_seq가 증가했을 수 있으므로 송신 직전 재스탬프.
             st.map_seq = self._map_seq

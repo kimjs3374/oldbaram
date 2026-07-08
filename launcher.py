@@ -10,8 +10,10 @@
         .version              ← 현재 build_version (적용 "완료" 후에만 기록)
         ...
 
-동작 (LAUNCHER_VER 2, 2026-07-05 근본수정 — 0.1.15 미반영 사고 대응):
-1. releases 최신 build_version + dist_manifest 조회.
+동작 (LAUNCHER_VER 3, 2026-07-08 근본수정 — .py 채널 행이 최신일 때
+자동업데이트 전면 정지 사고 대응):
+1. releases 에서 dist_manifest 가 있는 최신 행의 build_version + dist_manifest
+   조회 (최신 1행만 보면 .py 채널 행에 막힘 — v163 실사고).
 2. manifest sha 와 로컬 파일 전수 대조 → 변경분을 전부 *.new 로 스테이징
    다운로드(받은 바이트 sha 사전 검증 — 손상 다운로드 차단).
 3. 전부 성공했을 때만 일괄 교체. 메인 exe 부터 교체(잠금 위험 최대) —
@@ -40,7 +42,7 @@ import urllib.request
 URL = "https://ljuimshccxilqgquqezf.supabase.co"
 KEY = "sb_publishable_FvvU8TE_JjCAOfwgX_ywaA_61IZlGT5"
 BUCKET = "sunbi-releases"
-LAUNCHER_VER = "2"
+LAUNCHER_VER = "3"
 
 # 런처 exe 위치 기준 (onefile 은 sys.argv[0], standalone 은 실행 파일 경로).
 BASE = pathlib.Path(sys.argv[0]).resolve().parent
@@ -122,16 +124,29 @@ def _cleanup(staged: list) -> None:
 
 
 def update() -> None:
+    # 🔴 2026-07-08 사고 수정: releases 는 exe 채널(cloud_uploader_dist,
+    # dist_manifest 채움)과 .py 채널(cloud_uploader, dist_manifest 비움)이
+    # version 카운터를 공유하는 테이블이다. 최신 1행만 보면 그 행이 .py 채널
+    # 행일 때 dist_manifest=[] → "배포 manifest 없음" 으로 전 사용자 자동
+    # 업데이트가 통째로 죽는다 (실사고: v163 이 .py 행이라 v162 의 정상
+    # manifest 122개를 두고도 스킵. NavNet 자동 재학습이 도는 매일 05시 재발).
+    # dist_manifest 가 비어있지 않은 최신 행을 찾는다 (uploader_dist 와 동일 방어).
     rows = _get_json(
         "/rest/v1/releases?select=version,build_version,dist_manifest"
-        "&order=version.desc&limit=1")
+        "&order=version.desc&limit=20")
     if not rows:
         return
-    rel = rows[0]
+    rel = next((r for r in rows if r.get("dist_manifest")), None)
+    if rel is None:
+        _log(f"배포 manifest 없음(최근 {len(rows)}개 릴리스 전부) → 기존 실행")
+        return
+    if rel is not rows[0]:
+        _log(f"주의: 최신 v{rows[0].get('version')} 에 dist_manifest 없음"
+             f"(.py 채널 행) → v{rel.get('version')} 의 manifest 사용")
     bv = rel.get("build_version")
     manifest = rel.get("dist_manifest") or []
-    if not bv or not manifest:
-        _log("배포 manifest 없음 → 기존 실행")
+    if not bv:
+        _log(f"경고: v{rel.get('version')} build_version 없음 → 기존 실행")
         return
     # 2026-06-29: build_version 문자열만으로 스킵하지 않는다 — 항상 manifest
     # sha 와 로컬 파일을 전수 대조해 실제 변경분만 받는다 (버전 문자열은 기록용).

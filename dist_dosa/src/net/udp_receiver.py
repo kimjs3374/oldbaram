@@ -9,9 +9,15 @@ v5 확장:
 """
 import socket
 import threading
+import time
 from typing import Optional, Callable, Tuple
 
 from .protocol import State, ControlCmd, CooldownReport, parse_packet
+
+# 잠긴 격수 소스가 이 시간 동안 무수신이면 새 소스로 인계(격수 PC 교체/재시작).
+_SRC_TAKEOVER_SEC = 5.0
+# 다른 소스 거부 로그 간격(초) — 폭주 방지.
+_SRC_REJECT_LOG_SEC = 10.0
 
 
 class UdpReceiver:
@@ -46,6 +52,18 @@ class UdpReceiver:
         self._thread: Optional[threading.Thread] = None
         self._ctrl_handler: Optional[Callable[[ControlCmd], None]] = None
         self._state_first_logged = False
+        # 🔴 2026-07-08: 격수 소스 IP 고정. 격수 프로세스가 2개 살아 있으면
+        # (구 프로세스 미종료 등) 힐러가 두 소스의 State 를 번갈아 받아 맵/좌표가
+        # 진동한다. 실사고: attacker-0(국경지대 방치) + attacker-36(사냥 진행)
+        # → 힐러 맵 '국경지대'↔'선비족입구' 50ms 주기 플리커, MAP-DEBOUNCE
+        # -CONFIRM 496회. seq 역행 가드(아래)는 seq 차 1000 이상이면 통과시켜
+        # 서로 다른 프로세스의 seq 를 막지 못한다.
+        # UdpSender 는 소켓 1개를 프로세스 수명 내내 재사용 → (ip, port) 쌍이
+        # 격수 프로세스 식별자. IP 만 잠그면 같은 PC 중복 실행을 못 막는다.
+        self._locked_src: Optional[Tuple[str, int]] = None
+        self._last_pkt_ts = 0.0        # 잠긴 소스로부터의 마지막 수신 시각
+        self._rej_log_ts = 0.0
+        self._rej_count = 0
 
     def start(self):
         self._running = True
@@ -60,6 +78,48 @@ class UdpReceiver:
         """마지막으로 State를 받은 (src_ip, src_port). 격수 IP 자동 획득용."""
         with self._lock:
             return self._last_src
+
+    def _accept_src(self, addr, s: State) -> bool:
+        """격수 State 소스 (ip, port) 고정 게이트. 잠긴 소스 외 패킷은 버린다.
+
+        잠긴 소스가 _SRC_TAKEOVER_SEC 동안 무수신이면 새 소스로 인계 —
+        격수 재시작(포트 변경)·PC 교체·IP 변경은 정상 흡수한다. 반대로 두
+        프로세스가 **동시에** 살아 있으면 먼저 잡힌 쪽만 계속 수용한다.
+        """
+        src = (addr[0], addr[1]) if addr else ("", 0)
+        now = time.time()
+        import sys as _sys
+        with self._lock:
+            if self._locked_src is None:
+                self._locked_src = src
+                self._last_pkt_ts = now
+                print(f"[UDP-SRC] 격수 소스 고정 {src[0]}:{src[1]} seq={s.seq} "
+                      f"map='{s.map_name}'", file=_sys.stderr, flush=True)
+                return True
+            if src == self._locked_src:
+                self._last_pkt_ts = now
+                return True
+            # 다른 소스 — 잠긴 소스가 끊겼으면 인계, 아니면 거부.
+            idle = now - self._last_pkt_ts
+            if idle >= _SRC_TAKEOVER_SEC:
+                old = self._locked_src
+                self._locked_src = src
+                self._last_pkt_ts = now
+                self._rej_count = 0
+                print(f"[UDP-SRC] 격수 소스 인계 {old[0]}:{old[1]} → "
+                      f"{src[0]}:{src[1]} (직전 소스 {idle:.1f}s 무수신)",
+                      file=_sys.stderr, flush=True)
+                return True
+            self._rej_count += 1
+            if now - self._rej_log_ts >= _SRC_REJECT_LOG_SEC:
+                self._rej_log_ts = now
+                print(f"[UDP-SRC] 경고: 격수 프로세스가 2개 이상 송신 중 — "
+                      f"고정={self._locked_src[0]}:{self._locked_src[1]} "
+                      f"거부={src[0]}:{src[1]} "
+                      f"(누적 {self._rej_count}패킷, map='{s.map_name}'). "
+                      f"구 격수 프로세스를 종료하세요.",
+                      file=_sys.stderr, flush=True)
+            return False
 
     def _loop(self):
         # 2026-04-22: 원래 구조로 원복. 이전 drain 패턴이 State 중간 drop 유발
@@ -76,6 +136,9 @@ class UdpReceiver:
                 continue
             if isinstance(msg, State):
                 s = msg
+                # 🔴 격수 소스 IP 고정 — 격수 프로세스 2개 동시 송신 차단.
+                if not self._accept_src(addr, s):
+                    continue
                 with self._lock:
                     if s.seq < self._last_seq and (self._last_seq - s.seq) < 1000:
                         continue
