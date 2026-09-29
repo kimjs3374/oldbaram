@@ -7,8 +7,8 @@ rem  인자: force = 새 데이터 없어도 강제 재학습
 rem  기록: nav_auto_log.txt  /  🔴 이 파일은 CRLF 필수
 rem ============================================================
 chcp 65001 >nul
-cd /d D:\oldbaram
-set LOG=D:\oldbaram\nav_auto_log.txt
+cd /d "%~dp0"
+set "LOG=%~dp0nav_auto_log.txt"
 echo [%date% %time%] === NavBrain 자동학습 시작 === >> "%LOG%"
 
 py -3 -m src.tools.cloud_logs --pull

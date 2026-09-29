@@ -6,8 +6,8 @@ rem  산출물: nuitka_build\oldbaram_launcher.exe
 rem  배포: oldbaram_launcher.exe + app\(메인 dist) 를 같은 폴더에 두고 zip.
 rem ============================================================
 setlocal
-set PY=D:\oldbaram\dist_dosa\.venv\Scripts\python.exe
-cd /d D:\oldbaram
+set "PY=%~dp0dist_dosa\.venv\Scripts\python.exe"
+cd /d "%~dp0"
 
 "%PY%" -m nuitka launcher.py ^
   --onefile ^

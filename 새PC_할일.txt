@@ -1,0 +1,50 @@
+﻿==============================================================
+ ob_macro 새 PC 세팅 - 할 일 순서
+==============================================================
+
+[1] 폴더 복사
+    - D:\ob_macro 폴더 통째로 새 PC 의 D:\ob_macro 에 복사
+      (다른 경로도 동작은 하지만 D:\ob_macro 권장 - Claude 메모리가 경로 기준)
+    - 주의: _migration\home 안에 Supabase 관리자 키 있음. USB/클라우드 공유 시 조심.
+
+[2] 프로그램 설치
+    - Python 3.12.10 64bit
+        https://www.python.org/downloads/release/python-31210/
+        설치 화면에서 "py launcher" 체크 (기본 체크됨)
+    - Git for Windows
+        https://git-scm.com/download/win   (기본 옵션 그대로)
+    - Tailscale (격수/힐러 UDP 통신용)
+        https://tailscale.com/download   설치 후 기존 계정으로 로그인
+
+[3] 자동 세팅 실행
+    - D:\ob_macro\_migration\setup_new_pc.bat 더블클릭
+        · GPU 있고 학습(NavBrain/YOLO)도 할 PC → 그냥 실행
+        · 실행/빌드만 할 PC                     → cmd 에서 setup_new_pc.bat nodev
+    - 하는 일: 빌드용 venv 생성 → 패키지 설치 → 키/설정/Claude메모리 복원 → 스모크 테스트
+    - 소요: nodev 약 3~5분 / 전체 약 10~20분 (torch 2.5GB 다운로드)
+    - 마지막 줄이 "==== 세팅 완료: 스모크 테스트 전부 PASS ====" 이면 성공
+      [FAIL] 이 보이면 그 줄 캡처해서 알려주기
+
+[4] GitHub 연결 확인
+    - cmd 에서:
+        cd /d D:\ob_macro
+        git fetch
+      → 로그인 창 뜨면 GitHub(kimjs3374) 로그인
+    - git status 로 "Your branch is up to date with 'origin/main'" 확인
+
+[5] 실행 확인
+    - 소스 실행:  cd /d D:\ob_macro  &  py -m src.app.healer_gui
+    - exe 빌드:   D:\ob_macro\build_nuitka.bat
+        (첫 빌드는 gcc 자동 다운로드로 몇 분 더 걸림)
+        성공 = 로그 끝 "BUILD_DONE exit=0" + nuitka_build\run_sunbi_healer.dist\oldbaram_sunbi_healer.exe 생성
+
+[6] (선택) NavBrain 자동학습 스케줄러
+    - 현재 PC 에도 등록 안 돼 있음 (마지막 실행 2026-08-25, cloud_logs pull 실패 상태)
+    - 다시 쓸 때만 관리자 cmd 에서:
+        schtasks /create /tn oldbaram_nav_auto /tr "D:\ob_macro\_nav_auto.bat" /sc daily /st 05:00
+
+[7] 참고
+    - CLAUDE.md / 메모리에 적힌 "D:\oldbaram" 은 옛 경로 → 새 PC 에선 D:\ob_macro 로 보면 됨
+    - 빌드 bat 경로 수정 7개 파일은 아직 미커밋 (커밋 여부 결정 필요)
+    - 옛 PC 의 D:\oldbaram 은 삭제하지 말고 당분간 보관 (logs 46GB, 구 데이터셋 원본)
+    - 상세 내용: _migration\README_이전.md

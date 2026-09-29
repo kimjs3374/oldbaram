@@ -1,0 +1,40 @@
+# 개발/학습용 글로벌 Python 3.12 패키지 (현재 D:\oldbaram 개발 PC 의 실제 설치 버전 고정)
+# 용도: py -3 로 돌리는 루트 스크립트 (_nav_train.py / _nav_auto.bat / _train_*.py / cloud_logs 등)
+#       + `py -m src.app.healer_gui` 직접 실행.
+# exe 빌드는 이 환경이 아니라 dist_dosa\.venv (requirements_venv_lock.txt) 로만 한다.
+#
+# 설치: py -3.12 -m pip install -r _migration\requirements_dev.txt --extra-index-url https://download.pytorch.org/whl/cu124
+# (GPU 없는 PC 면 torch/torchvision 두 줄의 +cu124 를 지우고 --extra-index-url 없이 설치 → CPU 판)
+
+# --- 학습 (NavBrain / YOLO / digit CNN) ---
+torch==2.5.1+cu124
+torchvision==0.20.1+cu124
+ultralytics==8.4.37
+ultralytics-thop==2.0.18
+onnx==1.17.0
+onnxslim==0.1.94
+
+# --- 추론 (실행 경로) ---
+onnxruntime==1.20.1
+rapidocr-onnxruntime==1.4.4
+
+# --- 비전/캡처 ---
+opencv-python==4.13.0.92
+numpy==2.4.3
+pillow==12.1.1
+mss==10.1.0
+
+# --- GUI / Win32 ---
+PyQt5==5.15.11
+PyQt5-Qt5==5.15.2
+PyQt5_sip==12.18.0
+pywin32==311
+psutil==7.2.2
+
+# --- 설정/클라우드/라이선스 ---
+PyYAML==6.0.2
+requests==2.32.5
+bcrypt==5.0.0
+
+# --- 테스트 (dist_dosa/src_v2/tests) ---
+pytest

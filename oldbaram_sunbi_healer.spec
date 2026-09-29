@@ -13,9 +13,11 @@
 데이터는 _internal 에 둔다: config.ROOT(=src 부모)와 다른 모듈의
 Path(__file__).parents[2] 가 frozen 에서 모두 _internal 을 가리켜 경로가 일관됨.
 """
+import os
+
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
-ROOT = r'D:\oldbaram'
+ROOT =os.path.dirname(os.path.abspath(SPEC))
 
 datas = [
     # vision 모델/사전 — 코드가 Path(__file__).parent 기준으로 찾음 → src/vision 에.
@@ -25,7 +27,7 @@ datas = [
     # ROOT(=_internal) 기준 데이터/설정/학습파일.
     (ROOT + r'\config.yaml', '.'),
     (ROOT + r'\knownmaps.txt', '.'),
-    (r'C:\ob_sunbi\portals_v2.json', '.'),
+    (r'C:\ob_sunbi\portals_v2.json' if os.path.exists(r'C:\ob_sunbi\portals_v2.json') else os.path.join(ROOT, 'portals_v2.json'), '.'),
     # YOLO nano 가중치 — config.vision.weights(.pt) 의 .onnx 형제. onnx 만 동봉.
     (ROOT + r'\dataset\runs\full_v3_nano\weights\best.onnx',
      'dataset/runs/full_v3_nano/weights'),

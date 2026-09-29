@@ -5,8 +5,8 @@ rem  배포 exe(build_nuitka)와 완전 별개. service_role 키로 회원/기�
 rem  산출물: nuitka_build\oldbaram_admin.exe
 rem ============================================================
 setlocal
-set PY=D:\oldbaram\dist_dosa\.venv\Scripts\python.exe
-cd /d D:\oldbaram
+set "PY=%~dp0dist_dosa\.venv\Scripts\python.exe"
+cd /d "%~dp0"
 
 "%PY%" -m nuitka admin_gui.py ^
   --onefile ^

@@ -7,8 +7,11 @@ rem  실행: cd D:\oldbaram & build_nuitka.bat
 rem  산출물: D:\oldbaram\nuitka_build\run_sunbi_healer.dist\
 rem ============================================================
 setlocal
-set PY=D:\oldbaram\dist_dosa\.venv\Scripts\python.exe
-cd /d D:\oldbaram
+set "PY=%~dp0.venv\Scripts\python.exe"
+cd /d "%~dp0.."
+rem portals_v2.json: 실행기(C:\ob_sunbi) 최신 학습본 우선, 없으면 저장소 루트 사본
+set "PORTALS=%~dp0..\portals_v2.json"
+if exist "C:\ob_sunbi\portals_v2.json" set "PORTALS=C:\ob_sunbi\portals_v2.json"
 
 "%PY%" -m nuitka run_sunbi_healer.py ^
   --standalone ^
@@ -27,7 +30,7 @@ cd /d D:\oldbaram
   --include-data-files=src/vision/korean_dict.txt=src/vision/korean_dict.txt ^
   --include-data-files=config.yaml=config.yaml ^
   --include-data-files=knownmaps.txt=knownmaps.txt ^
-  --include-data-files=C:/ob_sunbi/portals_v2.json=portals_v2.json ^
+  "--include-data-files=%PORTALS%=portals_v2.json" ^
   --include-data-files=dataset/runs/full_v3_nano/weights/best.onnx=dataset/runs/full_v3_nano/weights/best.onnx ^
   --include-data-dir=maps=maps ^
   --nofollow-import-to=torch ^
